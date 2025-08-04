@@ -1,0 +1,22 @@
+import { supabase } from '../supabase/client';
+
+// Room_users service
+export const addUserToRoom = async (roomId: string, userId: string) => {
+  const { data, error } = await supabase
+    .from('Room_users')
+    .insert([{ room_id: roomId, user_id: userId }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export const removeUserFromRoom = async (roomId: string, userId: string) => {
+  const { error } = await supabase
+    .from('Room_users')
+    .delete()
+    .match({ room_id: roomId, user_id: userId });
+
+  if (error) throw error;
+};

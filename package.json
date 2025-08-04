@@ -10,9 +10,17 @@
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/node": "^18.x",
+    "install": "^0.13.0",
+    "nodemon": "^3.1.10",
     "prettier": "^3.0.0",
+    "ts-node": "^10.9.2",
     "turbo": "latest",
-    "typescript": "^5.0.0"
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0"
   }
 }
