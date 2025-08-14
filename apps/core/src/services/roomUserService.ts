@@ -4,7 +4,7 @@ import { supabase } from '../supabase/client';
 export const addUserToRoom = async (roomId: string, user_id: string) => {
   const { data, error } = await supabase
     .from('Room_users')
-    .insert([{ room_id: roomId, user_id: user_id }])
+    .insert([{ roomId: roomId, user_id: user_id }])
     .select()
     .single();
 
