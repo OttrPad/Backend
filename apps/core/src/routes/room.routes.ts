@@ -41,10 +41,21 @@ router.get("/users/test", async (req, res) => {
   });
 });
 
-// Room routes
-router.post("/rooms", createRoomHandler);
-router.post("/rooms/:id/join", joinRoomHandler);
-router.delete("/rooms/:id/leave", leaveRoomHandler);
-router.delete("/rooms/:id", deleteRoomHandler);
+// Room management routes (no /rooms prefix here as it's handled by API Gateway)
+router.post("/", createRoomHandler); // POST /rooms -> creates a room
+router.get("/", async (req, res) => {
+  // GET /rooms -> list all rooms
+  res.json({ message: "List all rooms - to be implemented", rooms: [] });
+});
+router.post("/:id/join", joinRoomHandler); // POST /rooms/:id/join
+router.delete("/:id/leave", leaveRoomHandler); // DELETE /rooms/:id/leave
+router.get("/:id", async (req, res) => {
+  // GET /rooms/:id -> get room details
+  res.json({
+    message: "Get room details - to be implemented",
+    roomId: req.params.id,
+  });
+});
+router.delete("/:id", deleteRoomHandler); // DELETE /rooms/:id
 
 export default router;

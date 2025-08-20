@@ -1,10 +1,17 @@
 import { supabase } from "@packages/supabase";
 
 // Rooms service
-export const createRoom = async (name: string) => {
+export const createRoom = async (name: string, createdBy?: string) => {
+  const roomData: any = { name };
+
+  // Add creator if provided
+  if (createdBy) {
+    roomData.created_by = createdBy;
+  }
+
   const { data, error } = await supabase
     .from("Rooms")
-    .insert([{ name }])
+    .insert([roomData])
     .select()
     .single();
 

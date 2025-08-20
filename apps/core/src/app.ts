@@ -3,7 +3,7 @@ import cors from "cors";
 import roomRoutes from "./routes/room.routes";
 
 const app = express();
-const PORT = process.env.PORT || 4001;
+const PORT = process.env.CORE_PORT || 4001;
 
 app.use(cors());
 app.use(express.json());

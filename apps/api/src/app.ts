@@ -1,17 +1,22 @@
 import express from "express";
 import cors from "cors";
-import axios from "axios";
+import { setupSwagger } from "./config/swagger.config";
+import gatewayRoutes from "./routes/gateway.routes";
+import healthRoutes from "./routes/health.routes";
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.API_PORT || 4000;
 
-app.use(cors());
+// Middleware
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    credentials: true,
+  })
+);
 app.use(express.json());
 
-// Root route
-app.get("/", (req, res) => {
-  res.json({ message: "Hello from API Gateway!" });
-});
+// Security headers
 app.use((req, res, next) => {
   res.setHeader(
     "Content-Security-Policy",
@@ -20,30 +25,61 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get("/api", (req, res) => {
-  res.json({ message: "API route is active" });
+// Setup Swagger documentation
+setupSwagger(app);
+
+// Root route
+app.get("/", (req, res) => {
+  res.json({
+    message: "🚀 Realtime Code Editor API Gateway",
+    version: "1.0.0",
+    docs: "/api-docs",
+    health: "/health",
+  });
 });
 
-// test core service
-// Import axios for making HTTP requests
+// Health routes
+app.use("/", healthRoutes);
 
-// Core service status endpoint
-app.get("/core/status", async (req, res) => {
-  try {
-    const coreServiceUrl =
-      process.env.CORE_SERVICE_URL || "http://localhost:4001";
-    const response = await axios.get(`${coreServiceUrl}/status`);
-    res.json(response.data);
-  } catch (error: unknown) {
-    console.error("Error connecting to core service:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
-    res
-      .status(503)
-      .json({ message: "Core service unavailable", error: errorMessage });
+// API routes (protected)
+app.use("/api", gatewayRoutes);
+
+// 404 handler
+app.use("*", (req, res) => {
+  res.status(404).json({
+    error: "Not Found",
+    message: `Route ${req.originalUrl} not found`,
+    availableRoutes: [
+      "GET /",
+      "GET /health",
+      "GET /health/services",
+      "GET /api-docs",
+      "POST /api/rooms",
+      "GET /api/rooms",
+      "PUT /api/rooms/:id",
+      "DELETE /api/rooms/:id",
+    ],
+  });
+});
+
+// Error handler
+app.use(
+  (
+    error: any,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    console.error("❌ Unhandled error:", error);
+    res.status(500).json({
+      error: "Internal Server Error",
+      message: "Something went wrong on the server",
+    });
   }
-});
+);
 
 app.listen(PORT, () => {
-  console.log(`API Gateway running on http://localhost:${PORT}`);
+  console.log(`🚀 API Gateway running on http://localhost:${PORT}`);
+  console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+  console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
 });
