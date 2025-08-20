@@ -1,10 +1,10 @@
-import { supabase } from '../supabase/client';
+import { supabase } from "@packages/supabase";
 
 // Room_users service
 export const addUserToRoom = async (roomId: string, user_id: string) => {
   const { data, error } = await supabase
-    .from('Room_users')
-    .insert([{ roomId: roomId, user_id: user_id }])
+    .from("Room_users")
+    .insert([{ room_id: roomId, user_id: userId }])
     .select()
     .single();
 
@@ -14,7 +14,7 @@ export const addUserToRoom = async (roomId: string, user_id: string) => {
 
 export const removeUserFromRoom = async (roomId: string, user_id: string) => {
   const { error } = await supabase
-    .from('Room_users')
+    .from("Room_users")
     .delete()
     .match({ room_id: roomId, user_id: user_id });
 
