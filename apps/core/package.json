@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "dev": "dotenv -e ../../.env -- ts-node src/app.ts",
-    "dev:watch": "dotenv -e ../../.env -- nodemon --watch src --ext ts --exec ts-node src/app.ts",
+    "dev": "dotenv -e ../../.env -- nodemon --watch src --ext ts --exec ts-node src/app.ts",
+    "dev:no-watch": "dotenv -e ../../.env -- ts-node src/app.ts",
     "start": "dotenv -e ../../.env -- node dist/app.js"
   },
   "dependencies": {

@@ -634,6 +634,57 @@ GATEWAY_SHARED_SECRET=your_secure_secret
 NODE_ENV=development
 ```
 
+---
+
+## ✅ Room Management Features
+
+### Room Creation & Code Generation
+
+- **Unique Shareable Codes**: Each room gets a 9-character code (format: `xxx-xxx-xxx`)
+- **Code Validation**: Ensures uniqueness in database before assignment
+- **Auto Admin Assignment**: Room creator is automatically added as admin to Room_users table
+- **Code Display**: Returns room code in response for frontend display
+
+### Room Joining System
+
+- **Join by Code**: Users can join rooms using shareable 9-digit codes
+- **Join by ID**: Traditional room joining using room ID
+- **Duplicate Prevention**: Checks for existing membership before adding users
+- **Role Assignment**: New members are assigned 'member' role automatically
+
+### User Role Management
+
+- **Admin Role**: Room creators get admin privileges automatically
+- **Member Role**: Joining users are assigned member status
+- **Future Access Control**: Foundation laid for permission-based features
+
+### Database Schema Updates
+
+- **Rooms Table**: Added `room_code` column with unique constraint and format validation
+- **Room_users Table**: Enhanced to track user roles (admin/member)
+- **Migration Support**: SQL migration file for production deployments
+
+### API Endpoints Enhanced
+
+```bash
+POST /api/rooms              # Create room (auto-assigns admin)
+POST /api/rooms/join         # Join by code
+POST /api/rooms/:id/join     # Join by ID
+POST /api/rooms/:id/leave    # Leave room
+DELETE /api/rooms/:id        # Delete room (creator only)
+GET /api/rooms               # List all rooms
+GET /api/rooms/:id           # Get room details
+```
+
+### Swagger Documentation Updated
+
+- All endpoints documented with request/response schemas
+- Interactive testing available at `/api-docs`
+- Authentication requirements clearly specified
+- Room code format and validation rules documented
+
+---
+
 ### Quick Start Commands:
 
 ```bash
