@@ -4,14 +4,18 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "dev": "ts-node src/app.ts",
-    "dev:watch": "nodemon --watch src --ext ts --exec ts-node src/app.ts",
-    "start": "node dist/app.js"
+    "dev": "dotenv -e ../../.env -- nodemon --watch src --ext ts --exec ts-node src/app.ts",
+    "dev:no-watch": "dotenv -e ../../.env -- ts-node src/app.ts",
+    "start": "dotenv -e ../../.env -- node dist/app.js"
   },
   "dependencies": {
     "@packages/supabase": "workspace:*",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/socket.io": "^3.0.2",
     "cors": "^2.8.5",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.13",

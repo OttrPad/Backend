@@ -4,20 +4,26 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "dev": "ts-node src/app.ts",
-    "dev:watch": "nodemon --watch src --ext ts --exec ts-node src/app.ts",
-    "start": "node dist/app.js"
+    "dev": "dotenv -e ../../.env -- nodemon --watch src --ext ts --exec ts-node src/app.ts",
+    "dev:no-watch": "dotenv -e ../../.env -- ts-node src/app.ts",
+    "start": "dotenv -e ../../.env -- node dist/app.js"
   },
   "dependencies": {
     "@packages/supabase": "workspace:*",
     "axios": "^1.6.2",
     "cors": "^2.8.5",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.13",
     "@types/express": "^4.17.17",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^18.x",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
     "nodemon": "^3.0.1",
     "ts-node": "^10.9.1",
     "typescript": "^5.0.0"
