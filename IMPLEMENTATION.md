@@ -662,35 +662,101 @@ NODE_ENV=development
 ### Access Management System
 
 - **Invite by Email**: Room creators can add email addresses to the allowed access list
+- **User Membership Validation**: Users must be members of the room (in room_users table) before being granted email-based access
+- **Access Transition Flow**: When users join for the first time, they are atomically moved from `allowed_emails` to `room_users`
+- **One-time Invitations**: Email access is "consumed" on first join - user transitions from invitation to membership
 - **Access Levels**: Each invited email gets either 'viewer' or 'editor' permissions
 - **Access Control**: Only emails in the allowed list (or room creator) can join rooms
 - **Permission Management**: Room creators can update or remove email access at any time
+- **Database Constraints**: Triggers enforce that user_id exists in Room_users before allowing access grants
+- **Atomic Operations**: Supabase function ensures consistent state during user transitions
 
 ### Database Schema Updates
 
 - **Rooms Table**: Added `room_code` column with unique constraint and format validation
 - **Room_users Table**: Enhanced to track user roles (admin/editor/viewer)
-- **Allowed_emails Table**: New table for email-based access control with permission levels
-- **Migration Support**: SQL migrations for room code support and access management
+- **Allowed_emails Table**: Enhanced with `user_id` field and validation triggers
+  - Added `user_id` column to link access grants to specific users
+  - Added database trigger to validate user membership before granting access
+  - Added unique constraint on (room_id, email, user_id) to prevent duplicates
+- **Migration Support**: SQL migrations for room code support and enhanced access management
+- **Supabase Functions**: `transition_user_to_room` function for atomic user transitions
+
+### User Join Flow
+
+**For Room Creators:**
+
+1. Creator joins room → Added directly to `room_users` as admin
+2. No email validation required
+
+**For Invited Users (First Time):**
+
+1. Creator adds email to `allowed_emails` with specific `user_id`
+2. User tries to join → System finds email access
+3. Supabase function atomically:
+   - Adds user to `room_users` with appropriate role
+   - Removes entry from `allowed_emails` (invitation consumed)
+4. Returns success with user role and transition info
+
+**For Existing Members:**
+
+1. User tries to join → System checks `room_users`
+2. If already member → Allow join with existing role
+3. If not member and no email access → Deny access
 
 ### API Endpoints Enhanced
 
 ```bash
 # Room Management
 POST /api/rooms              # Create room (auto-assigns admin)
-POST /api/rooms/join         # Join by code (access controlled)
-POST /api/rooms/:id/join     # Join by ID (access controlled)
+POST /api/rooms/join         # Join by code (access controlled with transition)
+POST /api/rooms/:id/join     # Join by ID (access controlled with transition)
 POST /api/rooms/:id/leave    # Leave room
 DELETE /api/rooms/:id        # Delete room (creator only)
-GET /api/rooms               # List all rooms
+GET /api/rooms               # List user's rooms (only actual memberships)
 GET /api/rooms/:id           # Get room details
 
-# Access Management (Creator only)
-POST /api/rooms/:id/access/add     # Add email to access list
-DELETE /api/rooms/:id/access/remove # Remove email from access list
-PUT /api/rooms/:id/access/update    # Update email access level
-GET /api/rooms/:id/access          # Get room access list
+# Access Management (Creator only) - Manages Email Invitations
+POST /api/rooms/:id/access/add     # Add email invitation (requires user_id)
+DELETE /api/rooms/:id/access/remove # Remove email invitation
+PUT /api/rooms/:id/access/update    # Update email invitation access level (requires user_id)
+GET /api/rooms/:id/access          # Get pending email invitations list
 ```
+
+### Enhanced Access Control Validation
+
+**Room Listing Security:**
+
+- `GET /api/rooms` returns only rooms where user is an actual member or creator
+- Pending email invitations are not shown until user joins and transitions to member
+- Includes rooms where user is: member, creator, or has email-based access
+- Each room includes `user_access` object showing user's relationship to the room
+- No longer exposes rooms the user cannot access (security enhancement)
+
+**Request Body Requirements for Access Management:**
+
+```json
+// POST /api/rooms/:id/access/add
+{
+  "email": "user@example.com",
+  "access_level": "editor",
+  "user_id": "123e4567-e89b-12d3-a456-426614174000"  // Required: Must be in room_users
+}
+
+// PUT /api/rooms/:id/access/update
+{
+  "email": "user@example.com",
+  "access_level": "viewer",
+  "user_id": "123e4567-e89b-12d3-a456-426614174000"  // Required: Must be in room_users
+}
+```
+
+**Validation Rules:**
+
+- `user_id` must exist in the `Room_users` table for the specified room
+- Access can only be granted to users who are already room members
+- Database triggers enforce membership validation at the database level
+- API layer validates membership before allowing access grants/updates
 
 POST /api/rooms/join # Join by code
 POST /api/rooms/:id/join # Join by ID

@@ -14,9 +14,9 @@ import {
   removeEmailFromRoomHandler,
   updateEmailAccessHandler,
   getRoomAllowedEmailsHandler,
+  getRoomParticipantsHandler,
 } from "../controllers/roomAccessController";
 import {
-  getRoomParticipantsHandler,
   kickUserFromRoomHandler,
   broadcastToRoomHandler,
   saveRoomContentHandler,

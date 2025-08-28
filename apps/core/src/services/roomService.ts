@@ -134,6 +134,86 @@ export const getAllRooms = async (limit: number = 50, offset: number = 0) => {
 };
 
 /**
+ * Get rooms that a specific user has access to
+ * This includes rooms where the user is:
+ * 1. A member (in Room_users table)
+ * 2. Is the room creator
+ * Note: allowed_emails are no longer checked as users are transitioned to room_users on first join
+ */
+export const getRoomsForUser = async (
+  userId: string,
+  userEmail: string,
+  limit: number = 50,
+  offset: number = 0
+) => {
+  // Get rooms where user is creator or member - using separate queries and combining
+  // This avoids the complex .or() syntax with joined tables
+
+  // Query 1: Rooms where user is creator
+  const { data: creatorRooms, error: creatorError } = await supabase
+    .from("Rooms")
+    .select(
+      `
+      *,
+      Room_users(uid, type)
+    `
+    )
+    .eq("created_by", userId);
+
+  if (creatorError) throw creatorError;
+
+  // Query 2: Rooms where user is a member
+  const { data: memberRooms, error: memberError } = await supabase
+    .from("Rooms")
+    .select(
+      `
+      *,
+      Room_users!inner(uid, type)
+    `
+    )
+    .eq("Room_users.uid", userId);
+
+  if (memberError) throw memberError;
+
+  // Combine and deduplicate results
+  const allRooms = [...(creatorRooms || []), ...(memberRooms || [])];
+  const uniqueRooms = allRooms.reduce((acc: any[], room: any) => {
+    const existingRoom = acc.find((r: any) => r.room_id === room.room_id);
+    if (!existingRoom) {
+      const userMembership = room.Room_users?.find(
+        (u: any) => u.uid === userId
+      );
+      acc.push({
+        ...room,
+        user_access: {
+          is_member: !!userMembership,
+          is_creator: room.created_by === userId,
+          user_type:
+            userMembership?.type ||
+            (room.created_by === userId ? "admin" : null),
+        },
+      });
+    }
+    return acc;
+  }, []);
+
+  // Sort by created_at (newest first)
+  uniqueRooms.sort(
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  // Apply pagination
+  const paginatedRooms = uniqueRooms.slice(offset, offset + limit);
+
+  return {
+    rooms: paginatedRooms,
+    total: uniqueRooms.length,
+    hasMore: offset + limit < uniqueRooms.length,
+  };
+};
+
+/**
  * Get room details by ID including user list
  */
 export const getRoomById = async (roomId: string) => {

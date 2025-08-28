@@ -1,4 +1,5 @@
 import { supabase } from "@packages/supabase";
+import { isUserInRoom } from "./roomUserService";
 
 export interface AllowedEmail {
   id: number;
@@ -20,10 +21,10 @@ export const addAllowedEmail = async (
 ): Promise<AllowedEmail> => {
   // Check if email is already allowed for this room
   const { data: existing } = await supabase
-    .from("allowed_emails")
+    .from("Allowed_emails")
     .select("*")
     .eq("room_id", parseInt(roomId))
-    .eq("email", email)
+    .eq("email", email.toLowerCase().trim())
     .single();
 
   if (existing) {
@@ -32,7 +33,7 @@ export const addAllowedEmail = async (
 
   // Add email to allowed list
   const { data, error } = await supabase
-    .from("allowed_emails")
+    .from("Allowed_emails")
     .insert([
       {
         room_id: parseInt(roomId),
@@ -56,7 +57,7 @@ export const removeAllowedEmail = async (
   email: string
 ): Promise<void> => {
   const { error } = await supabase
-    .from("allowed_emails")
+    .from("Allowed_emails")
     .delete()
     .eq("room_id", parseInt(roomId))
     .eq("email", email.toLowerCase().trim());
@@ -73,7 +74,7 @@ export const updateAllowedEmailAccess = async (
   accessLevel: "viewer" | "editor"
 ): Promise<AllowedEmail> => {
   const { data, error } = await supabase
-    .from("allowed_emails")
+    .from("Allowed_emails")
     .update({ access_level: accessLevel })
     .eq("room_id", parseInt(roomId))
     .eq("email", email.toLowerCase().trim())
@@ -92,7 +93,7 @@ export const getAllowedEmails = async (
   roomId: string
 ): Promise<AllowedEmail[]> => {
   const { data, error } = await supabase
-    .from("allowed_emails")
+    .from("Allowed_emails")
     .select("*")
     .eq("room_id", parseInt(roomId))
     .order("invited_at", { ascending: true });
@@ -109,7 +110,7 @@ export const checkEmailAccess = async (
   email: string
 ): Promise<{ allowed: boolean; accessLevel?: "viewer" | "editor" }> => {
   const { data, error } = await supabase
-    .from("allowed_emails")
+    .from("Allowed_emails")
     .select("access_level")
     .eq("room_id", parseInt(roomId))
     .eq("email", email.toLowerCase().trim())
@@ -131,7 +132,7 @@ export const getRoomsForEmail = async (
   email: string
 ): Promise<AllowedEmail[]> => {
   const { data, error } = await supabase
-    .from("allowed_emails")
+    .from("Allowed_emails")
     .select(
       `
       *,

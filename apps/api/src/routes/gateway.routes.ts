@@ -114,25 +114,76 @@ router.post("/rooms", verifySupabaseJWT, async (req, res) => {
  * @swagger
  * /api/rooms:
  *   get:
- *     summary: Get all rooms
- *     description: Retrieve a list of all available rooms
+ *     summary: Get user's accessible rooms
+ *     description: Retrieve a list of rooms that the authenticated user has access to. This includes rooms where the user is a member or creator. Users who have email invitations but haven't joined yet will not see those rooms until they join.
  *     tags: [Rooms]
  *     security:
  *       - BearerAuth: []
+ *     parameters:
+ *       - name: limit
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Maximum number of rooms to return
+ *       - name: offset
+ *         in: query
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *         description: Number of rooms to skip for pagination
  *     responses:
  *       200:
- *         description: List of rooms
+ *         description: List of user's accessible rooms
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "User rooms retrieved successfully"
  *                 rooms:
  *                   type: array
  *                   items:
  *                     type: object
+ *                     properties:
+ *                       room_id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       room_code:
+ *                         type: string
+ *                       created_by:
+ *                         type: string
+ *                       created_at:
+ *                         type: string
+ *                         format: date-time
+ *                       user_access:
+ *                         type: object
+ *                         properties:
+ *                           is_member:
+ *                             type: boolean
+ *                             description: Whether user is a room member
+ *                           is_creator:
+ *                             type: boolean
+ *                             description: Whether user created the room
+ *                           user_type:
+ *                             type: string
+ *                             enum: [admin, editor, viewer, null]
+ *                             description: User's role in the room (null if not a member)
+ *                 total:
+ *                   type: integer
+ *                   description: Total number of accessible rooms
+ *                 hasMore:
+ *                   type: boolean
+ *                   description: Whether there are more rooms to load
+ *       400:
+ *         description: Bad request - User authentication required
  *       401:
- *         description: Unauthorized
+ *         description: Unauthorized - Invalid or missing JWT token
  */
 router.get("/rooms", verifySupabaseJWT, async (req, res) => {
   await serviceProxy.proxyRequest("core", "/rooms", req, res);
@@ -143,7 +194,13 @@ router.get("/rooms", verifySupabaseJWT, async (req, res) => {
  * /api/rooms/join:
  *   post:
  *     summary: Join a room by code
- *     description: Join a room using a shareable 9-digit room code. Access is controlled - user's email must be in the room's allowed list or they must be the room creator. Users are assigned the access level specified in the allowed emails list.
+ *     description: |
+ *       Join a room using a shareable 9-digit room code. Access control flow:
+ *       - Room creators can always join as admin
+ *       - Users with email-based access (in allowed_emails) will be transitioned to room members
+ *       - On first join, user is moved from allowed_emails to room_users table
+ *       - Subsequent joins will be validated against room_users membership
+ *       - Users get the access level specified in their email invitation (viewer/editor)
  *     tags: [Rooms]
  *     security:
  *       - BearerAuth: []
@@ -188,6 +245,18 @@ router.get("/rooms", verifySupabaseJWT, async (req, res) => {
  *                       type: string
  *                     email:
  *                       type: string
+ *                 transition_info:
+ *                   type: object
+ *                   description: Information about how the user joined (creator vs email invitation)
+ *                   properties:
+ *                     user_type:
+ *                       type: string
+ *                       enum: [admin, editor, viewer]
+ *                       description: User's role in the room
+ *                     transition_type:
+ *                       type: string
+ *                       enum: [creator_join, email_to_member]
+ *                       description: How the user was added to the room
  *       400:
  *         description: Bad request
  *         content:
@@ -212,7 +281,7 @@ router.get("/rooms", verifySupabaseJWT, async (req, res) => {
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Access denied - Email not authorized for this room
+ *         description: Access denied - Various access control failures
  *         content:
  *           application/json:
  *             schema:
@@ -220,10 +289,15 @@ router.get("/rooms", verifySupabaseJWT, async (req, res) => {
  *               properties:
  *                 error:
  *                   type: string
- *                   example: "Access denied"
+ *                   enum:
+ *                     - "Access denied"
+ *                     - "Access denied: Email not authorized for this room"
+ *                     - "Access denied: Email authorized for different user"
  *                 message:
  *                   type: string
- *                   example: "Your email is not authorized to access this room"
+ *                   enum:
+ *                     - "Your email is not authorized to access this room"
+ *                     - "Email access exists but for a different user account"
  *       404:
  *         description: Room not found with this code
  *         content:
@@ -285,7 +359,13 @@ router.get("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  * /api/rooms/{id}/join:
  *   post:
  *     summary: Join a room by ID
- *     description: Join a room using room ID. Access is controlled - user's email must be in the room's allowed list or they must be the room creator. Users are assigned the access level specified in the allowed emails list.
+ *     description: |
+ *       Join a room using room ID. Access control flow:
+ *       - Room creators can always join as admin
+ *       - Users with email-based access (in allowed_emails) will be transitioned to room members
+ *       - On first join, user is moved from allowed_emails to room_users table
+ *       - Subsequent joins will be validated against room_users membership
+ *       - Users get the access level specified in their email invitation (viewer/editor)
  *     tags: [Rooms]
  *     security:
  *       - BearerAuth: []
@@ -298,7 +378,7 @@ router.get("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  *         description: Room ID to join
  *     responses:
  *       200:
- *         description: Successfully joined room as editor
+ *         description: Successfully joined room with assigned access level
  *         content:
  *           application/json:
  *             schema:
@@ -323,6 +403,18 @@ router.get("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  *                       type: string
  *                     email:
  *                       type: string
+ *                 transition_info:
+ *                   type: object
+ *                   description: Information about how the user joined (creator vs email invitation)
+ *                   properties:
+ *                     user_type:
+ *                       type: string
+ *                       enum: [admin, editor, viewer]
+ *                       description: User's role in the room
+ *                     transition_type:
+ *                       type: string
+ *                       enum: [creator_join, email_to_member]
+ *                       description: How the user was added to the room
  *       400:
  *         description: Bad request
  *         content:
@@ -493,7 +585,7 @@ router.delete("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  * /api/rooms/{id}/access/add:
  *   post:
  *     summary: Add email to room access list
- *     description: Add an email to the room's allowed access list with specified permission level. Only room creator can manage access.
+ *     description: Add an email to the room's allowed access list with specified permission level. Only room admin (creator or assigned admin) can manage access.
  *     tags: [Room Access]
  *     security:
  *       - BearerAuth: []
@@ -513,6 +605,7 @@ router.delete("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  *             required:
  *               - email
  *               - access_level
+ *               - user_id
  *             properties:
  *               email:
  *                 type: string
@@ -524,6 +617,10 @@ router.delete("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  *                 enum: [viewer, editor]
  *                 description: Access level for the email
  *                 example: "editor"
+ *               user_id:
+ *                 type: string
+ *                 description: User ID that must be a member of the room to grant access
+ *                 example: "123e4567-e89b-12d3-a456-426614174000"
  *     responses:
  *       201:
  *         description: Email added to room access list successfully
@@ -557,10 +654,11 @@ router.delete("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  *                 error:
  *                   type: string
  *                   enum:
- *                     - "Room ID, email, and access level are required"
+ *                     - "Room ID, email, access level, and user ID are required"
  *                     - "Access level must be 'viewer' or 'editor'"
  *                     - "Invalid email format"
  *                     - "Cannot add your own email to the access list"
+ *                     - "User must be a member of the room to be granted access"
  *       401:
  *         description: Unauthorized
  *       403:
@@ -584,7 +682,7 @@ router.post("/rooms/:id/access/add", verifySupabaseJWT, async (req, res) => {
  * /api/rooms/{id}/access/remove:
  *   delete:
  *     summary: Remove email from room access list
- *     description: Remove an email from the room's allowed access list. Only room creator can manage access.
+ *     description: Remove an email from the room's allowed access list. Only room admin (creator or assigned admin) can manage access.
  *     tags: [Room Access]
  *     security:
  *       - BearerAuth: []
@@ -647,7 +745,7 @@ router.delete(
  * /api/rooms/{id}/access/update:
  *   put:
  *     summary: Update email access level
- *     description: Update the access level for an email in the room's access list. Only room creator can manage access.
+ *     description: Update the access level for an email in the room's access list. Only room admin (creator or assigned admin) can manage access.
  *     tags: [Room Access]
  *     security:
  *       - BearerAuth: []
@@ -667,6 +765,7 @@ router.delete(
  *             required:
  *               - email
  *               - access_level
+ *               - user_id
  *             properties:
  *               email:
  *                 type: string
@@ -678,6 +777,10 @@ router.delete(
  *                 enum: [viewer, editor]
  *                 description: New access level for the email
  *                 example: "viewer"
+ *               user_id:
+ *                 type: string
+ *                 description: User ID that must be a member of the room to update access
+ *                 example: "123e4567-e89b-12d3-a456-426614174000"
  *     responses:
  *       200:
  *         description: Email access level updated successfully
@@ -724,7 +827,7 @@ router.put("/rooms/:id/access/update", verifySupabaseJWT, async (req, res) => {
  * /api/rooms/{id}/access:
  *   get:
  *     summary: Get room access list
- *     description: Get all emails that have access to the room with their permission levels. Only room creator can view the access list.
+ *     description: Get all emails that have access to the room with their permission levels. Only room admin (creator or assigned admin) can view the access list.
  *     tags: [Room Access]
  *     security:
  *       - BearerAuth: []
@@ -797,9 +900,17 @@ router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
  * @swagger
  * /api/rooms/{id}/participants:
  *   get:
- *     summary: Get current participants in a room
- *     description: Retrieve list of users currently connected to the room via WebSocket
- *     tags: [Realtime]
+ *     summary: Get all participants and invited users in a room
+ *     description: |
+ *       Retrieve list of all users associated with the room including:
+ *       - Current members (users who have joined the room)
+ *       - Invited users (users with email invitations who haven't joined yet)
+ *
+ *       Access control:
+ *       - Only room admin or members can view participants
+ *       - Invited users show status as "invited"
+ *       - Room members show status as "member"
+ *     tags: [Room Access Management]
  *     security:
  *       - BearerAuth: []
  *     parameters:
@@ -820,27 +931,50 @@ router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
  *                 message:
  *                   type: string
  *                   example: "Room participants retrieved successfully"
- *                 roomId:
- *                   type: string
+ *                 room:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     name:
+ *                       type: string
  *                 participants:
  *                   type: array
  *                   items:
  *                     type: object
  *                     properties:
- *                       userId:
+ *                       user_id:
  *                         type: string
- *                       userEmail:
+ *                         description: User ID
+ *                       email:
  *                         type: string
- *                       socketId:
+ *                         description: Email address (only for invited users)
+ *                       status:
  *                         type: string
- *                       joinedAt:
- *                         type: number
- *                 totalCount:
+ *                         enum: [member, invited]
+ *                         description: User status in the room
+ *                       user_type:
+ *                         type: string
+ *                         enum: [admin, editor, viewer]
+ *                         description: Access level in the room
+ *                       joined_at:
+ *                         type: string
+ *                         format: date-time
+ *                         description: When user joined (only for members)
+ *                       invited_at:
+ *                         type: string
+ *                         format: date-time
+ *                         description: When user was invited (only for invited users)
+ *                       invited_by:
+ *                         type: string
+ *                         description: Who sent the invitation (only for invited users)
+ *                 total_count:
  *                   type: number
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
+ *                   description: Total number of participants (members + invited)
+ *       403:
+ *         description: Access denied - Only room admin or members can view participants
+ *       404:
+ *         description: Room not found
  *       500:
  *         description: Internal server error
  */
