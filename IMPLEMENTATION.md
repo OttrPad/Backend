@@ -647,34 +647,59 @@ NODE_ENV=development
 
 ### Room Joining System
 
-- **Join by Code**: Users can join rooms using shareable 9-digit codes
-- **Join by ID**: Traditional room joining using room ID
+- **Join by Code**: Users can join rooms using shareable 9-digit codes (access controlled)
+- **Join by ID**: Traditional room joining using room ID (access controlled)
 - **Duplicate Prevention**: Checks for existing membership before adding users
-- **Role Assignment**: New members are assigned 'member' role automatically
+- **Access Control**: Only invited emails or room creators can join rooms
 
 ### User Role Management
 
 - **Admin Role**: Room creators get admin privileges automatically
-- **Member Role**: Joining users are assigned member status
-- **Future Access Control**: Foundation laid for permission-based features
+- **Editor Role**: Users with editing permissions for room content
+- **Viewer Role**: Users with read-only access to room content
+- **Email-based Access Control**: Room creators can invite specific emails with designated access levels
+
+### Access Management System
+
+- **Invite by Email**: Room creators can add email addresses to the allowed access list
+- **Access Levels**: Each invited email gets either 'viewer' or 'editor' permissions
+- **Access Control**: Only emails in the allowed list (or room creator) can join rooms
+- **Permission Management**: Room creators can update or remove email access at any time
 
 ### Database Schema Updates
 
 - **Rooms Table**: Added `room_code` column with unique constraint and format validation
-- **Room_users Table**: Enhanced to track user roles (admin/member)
-- **Migration Support**: SQL migration file for production deployments
+- **Room_users Table**: Enhanced to track user roles (admin/editor/viewer)
+- **Allowed_emails Table**: New table for email-based access control with permission levels
+- **Migration Support**: SQL migrations for room code support and access management
 
 ### API Endpoints Enhanced
 
 ```bash
+# Room Management
 POST /api/rooms              # Create room (auto-assigns admin)
-POST /api/rooms/join         # Join by code
-POST /api/rooms/:id/join     # Join by ID
+POST /api/rooms/join         # Join by code (access controlled)
+POST /api/rooms/:id/join     # Join by ID (access controlled)
 POST /api/rooms/:id/leave    # Leave room
 DELETE /api/rooms/:id        # Delete room (creator only)
 GET /api/rooms               # List all rooms
 GET /api/rooms/:id           # Get room details
+
+# Access Management (Creator only)
+POST /api/rooms/:id/access/add     # Add email to access list
+DELETE /api/rooms/:id/access/remove # Remove email from access list
+PUT /api/rooms/:id/access/update    # Update email access level
+GET /api/rooms/:id/access          # Get room access list
 ```
+
+POST /api/rooms/join # Join by code
+POST /api/rooms/:id/join # Join by ID
+POST /api/rooms/:id/leave # Leave room
+DELETE /api/rooms/:id # Delete room (creator only)
+GET /api/rooms # List all rooms
+GET /api/rooms/:id # Get room details
+
+````
 
 ### Swagger Documentation Updated
 
@@ -699,7 +724,7 @@ pnpm dev
 # API Documentation: http://localhost:4000/api-docs
 # Health Check: http://localhost:4000/health
 # Core Service: http://localhost:4001 (protected)
-```
+````
 
 ---
 

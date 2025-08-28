@@ -8,6 +8,7 @@ import {
   getRoomById,
 } from "../services/roomService";
 import { addUserToRoom, removeUserFromRoom } from "../services/roomUserService";
+import { checkEmailAccess } from "../services/allowedEmailService";
 
 export const createRoomHandler = async (req: Request, res: Response) => {
   try {
@@ -118,7 +119,7 @@ export const joinRoomByCodeHandler = async (req: Request, res: Response) => {
     if (!room_code) {
       return res.status(400).json({ error: "Room code is required" });
     }
-    if (!userId) {
+    if (!userId || !userEmail) {
       return res.status(400).json({ error: "User authentication required" });
     }
 
@@ -128,10 +129,33 @@ export const joinRoomByCodeHandler = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Room not found with this code" });
     }
 
-    // Check if user is already in the room
-    // This will be handled by the addUserToRoom service
+    // Check if user is the room creator (admin) - they can always join
+    const isCreator = room.created_by === userId;
 
-    await addUserToRoom(room.room_id.toString(), userId, "editor");
+    if (!isCreator) {
+      // Check if user's email is allowed to access this room
+      const emailAccess = await checkEmailAccess(
+        room.room_id.toString(),
+        userEmail
+      );
+
+      if (!emailAccess.allowed) {
+        return res.status(403).json({
+          error: "Access denied",
+          message: "Your email is not authorized to access this room",
+        });
+      }
+
+      // Use the access level from the allowed emails table
+      await addUserToRoom(
+        room.room_id.toString(),
+        userId,
+        emailAccess.accessLevel!
+      );
+    } else {
+      // Creator joins as admin
+      await addUserToRoom(room.room_id.toString(), userId, "admin");
+    }
 
     console.log(
       `✅ User ${userEmail} (${userId}) joined room ${room.name} via code ${room_code}`
@@ -172,7 +196,7 @@ export const joinRoomHandler = async (req: Request, res: Response) => {
     const userId = req.headers["x-gateway-user-id"] as string;
     const userEmail = req.headers["x-gateway-user-email"] as string;
 
-    if (!roomId || !userId) {
+    if (!roomId || !userId || !userEmail) {
       return res
         .status(400)
         .json({ error: "roomId and valid user authentication are required" });
@@ -184,7 +208,26 @@ export const joinRoomHandler = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Room not found" });
     }
 
-    await addUserToRoom(roomId, userId, "editor");
+    // Check if user is the room creator (admin) - they can always join
+    const isCreator = room.created_by === userId;
+
+    if (!isCreator) {
+      // Check if user's email is allowed to access this room
+      const emailAccess = await checkEmailAccess(roomId, userEmail);
+
+      if (!emailAccess.allowed) {
+        return res.status(403).json({
+          error: "Access denied",
+          message: "Your email is not authorized to access this room",
+        });
+      }
+
+      // Use the access level from the allowed emails table
+      await addUserToRoom(roomId, userId, emailAccess.accessLevel!);
+    } else {
+      // Creator joins as admin
+      await addUserToRoom(roomId, userId, "admin");
+    }
 
     console.log(`✅ User ${userEmail} (${userId}) joined room ${roomId}`);
 
