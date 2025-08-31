@@ -1,6 +1,8 @@
 import { Server as SocketServer, Socket } from "socket.io";
 import { Server as HttpServer } from "http";
 import jwt from "jsonwebtoken";
+import { addChatMessage, getRoomChatMessages } from "./chatService"; // Import chat service
+
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -61,8 +63,18 @@ class RealtimeService {
   private setupSocketHandlers() {
     this.io.use(this.authenticateSocket.bind(this));
 
+    // a user connect
+    // this.io.on("connection", (socket: AuthenticatedSocket) => {
+    //     console.log("A user connected:", socket.id);
+    //     // ...other handlers...
+
+    //     socket.emit("message", { content: "Welcome to the chat!" });
+    // });
+
     this.io.on("connection", (socket: AuthenticatedSocket) => {
+      console.log("A user connected:", socket.id);
       console.log(`✅ User ${socket.userEmail} (${socket.userId}) connected to WebSocket`);
+      socket.emit("message", { content: "Welcome to the chat!" });
 
       // Handle joining a room
       socket.on("join-room", (data: { roomId: string }) => {
@@ -73,6 +85,67 @@ class RealtimeService {
       socket.on("leave-room", () => {
         this.handleLeaveRoom(socket);
       });
+
+      // // Handle sending chat messages
+      // // socket.on(
+      // //   "chat:send",
+      // //   async (data: { roomId: string; userId?: string; content: string }) => {
+      // //     const uid = data.userId || socket.userId!;
+      // //     await this.handleChatSend(socket, {
+      // //       roomId: data.roomId,
+      // //       uid,
+      // //       message: data.content,
+      // //     });
+      // //     console.log("Received chat message:", data);
+      // //   }
+      // // );
+      // socket.on("chat:send", async (data: { roomId: string; userId?: string; content: string }) => {
+      //   const uid = data.userId || socket.userId!;
+      //   console.log("[chat:send] received =>", { roomId: data.roomId, uid, contentLen: data.content?.length });
+      //   try {
+      //     await this.handleChatSend(socket, { roomId: data.roomId, uid, message: data.content });
+      //     console.log("[chat:send] handled successfully", { roomId: data.roomId, uid, contentLen: data.content?.length });
+      //   } catch (e) {
+      //     console.error("[chat:send] failed:", e);
+      //   }
+      // });
+
+
+
+      socket.on(
+        "chat:send",
+        async (data: { roomId: string; userId?: string; content?: string; message?: string }) => {
+          const uid = data.userId || socket.userId!;
+
+          // 🔑 Normalize message field
+          const msg = (data.content ?? data.message ?? "").trim();
+
+          console.log("[chat:send] received =>", {
+            roomId: data.roomId,
+            uid,
+            contentLen: msg.length,
+          });
+
+          if (!msg) {
+            console.warn("[chat:send] message is missing or empty");
+            socket.emit("chat:error", { message: "Message cannot be empty" });
+            return;
+          }
+
+          try {
+            await this.handleChatSend(socket, { roomId: data.roomId, uid, message: msg });
+            console.log("[chat:send] handled successfully", {
+              roomId: data.roomId,
+              uid,
+              contentLen: msg.length,
+            });
+          } catch (e) {
+            console.error("[chat:send] failed:", e);
+          }
+        }
+      );
+
+
 
       // Handle code changes
       socket.on("code-change", (data: { content: string; cursorPosition?: { line: number; column: number } }) => {
@@ -120,13 +193,90 @@ class RealtimeService {
     }
   }
 
+// private async handleChatSend(
+//   socket: AuthenticatedSocket,
+//   data: { roomId: string; uid: string; message: string }
+// ) {
+//   if (!data.roomId || !data.uid || !data.message) {
+//     console.warn("[handleChatSend] missing field(s)", data);
+//   return;
+// }
+
+//   // try {
+//   //   const savedMessage = await addChatMessage(data.roomId, data.uid, data.message);
+//   //   console.log("Chat message saved:", savedMessage);
+//   //   // Broadcast DB-shaped message
+//   //   this.io.to(data.roomId).emit("chat:new", {
+//   //     roomId: data.roomId,
+//   //     message: savedMessage, // {message_id, room_id, uid, message, created_at}
+//   //   });
+//   // } catch (err) {
+//   //   console.error("Failed to save chat message:", err);
+//   //   socket.emit("chat:error", { message: "Failed to send message" });
+//   // }
+//   try {
+//     console.log("[handleChatSend] inserting into DB =>", {
+//       room_id: Number(data.roomId),
+//       uid: data.uid,
+//       messageLen: data.message.length,
+//     });
+//     const savedMessage = await addChatMessage(data.roomId, data.uid, data.message);
+
+//     console.log("[handleChatSend] DB insert OK:", savedMessage);
+//     this.io.to(data.roomId).emit("chat:new", {
+//       roomId: data.roomId,
+//       message: savedMessage,
+//     });
+//   } catch (err) {
+
+//     console.error("[handleChatSend] DB insert FAILED:", err);
+//     socket.emit("chat:error", { message: "Failed to send message" });
+//   }
+// }
+
+
+
+private async handleChatSend(
+  socket: AuthenticatedSocket,
+  data: { roomId: string; uid: string; message: string }
+) {
+  if (!data.roomId || !data.uid || !data.message?.trim()) {
+    console.warn("[handleChatSend] missing field(s)", {
+      uid: data.uid,
+      roomId: data.roomId,
+      message: data.message,
+    });
+    socket.emit("chat:error", { message: "roomId, uid and message are required" });
+    return;
+  }
+
+  try {
+    console.log("[handleChatSend] inserting into DB =>", {
+      room_id: data.roomId,
+      uid: data.uid,
+      messageLen: data.message.length,
+    });
+
+    const savedMessage = await addChatMessage(data.roomId, data.uid, data.message);
+
+    this.io.to(data.roomId).emit("chat:new", {
+      roomId: data.roomId,
+      message: savedMessage,
+    });
+  } catch (err) {
+    console.error("[handleChatSend] DB insert FAILED:", err);
+    socket.emit("chat:error", { message: "Failed to send message" });
+  }
+}
+
+
   private handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
     if (!socket.userId || !socket.userEmail) return;
 
-    // Leave previous room if any
+    // Leave the previous room if any
     this.handleLeaveRoom(socket);
 
-    // Join new room
+    // Join the new room
     socket.roomId = roomId;
     socket.join(roomId);
 
@@ -143,7 +293,7 @@ class RealtimeService {
 
     this.roomParticipants[roomId].set(socket.userId, userInfo);
 
-    // Notify others in the room about new user
+    // Notify others in the room about the new user
     const joinEvent: UserJoinEvent = {
       roomId,
       userId: socket.userId,
