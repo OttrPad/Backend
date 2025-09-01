@@ -1,9 +1,6 @@
 import { Server as SocketServer, Socket } from "socket.io";
 import { Server as HttpServer } from "http";
 import jwt from "jsonwebtoken";
-import io from "socket.io";
-
-import e from "express";
 
 
 interface AuthenticatedSocket extends Socket {
@@ -75,111 +72,22 @@ class RealtimeService {
 
       // Broadcast when a user connects
       
-      socket.broadcast.emit('message', { content: 'A user has connected' });
+      // socket.broadcast.emit('message', { content: 'A user has connected' });
  
       // Handle disconnect
       socket.on("disconnect", () => {
-        this.io.emit('message', { content: 'A user has disconnected' });
+        // this.io.emit('message', { content: 'A user has disconnected' });
         this.handleDisconnect(socket);
       });
 
-      // // Listen for chatMessage
-      // socket.on("chat:send", (data: { roomId: string; uid: string; message: string; email: string }) => {
 
-      //   const roomId = data.roomId || socket.roomId;
-      //   if (!roomId) {
-      //     socket.emit("chat:error", { message: "No room joined" });
-      //     return;
-      //   }
-
-      //   // console.log("[chat:send] event received:", data);
-      //   socket.broadcast.to(roomId).emit('message', { content: data.message });
-
-
-      //   // this.handleChatSend(socket, data);
-      // });
-
-      // socket.on("chat:send", ({ roomId, message, uid, email }) => {
-      //   if (!roomId || !message) return;
-
-      //   const payload = {
-      //     uid,
-      //     email,
-      //     content: message,
-      //     timestamp: Date.now(),
-      //   };
-
-      //   // Send to EVERYONE in the room
-      //   this.io.to(roomId).emit("message", payload);
-      // });
-
-
-
-
-// ...existing code...
       socket.on(
         "chat:send",
         (
           data: { roomId?: string; message?: string; uid?: string; email?: string },
           ack?: (res: { ok: boolean; error?: string }) => void
-        ) => {
-          try {
-            console.log("[chat:send] incoming:", { socketId: socket.id, userId: socket.userId, email: socket.userEmail, data });
-
-            const roomId = (data?.roomId || "").trim();
-            const msg = (data?.message || "").trim();
-
-            if (!roomId || !msg) {
-              const error = "roomId and message are required";
-              console.warn("[chat:send] validation failed:", { socketId: socket.id, roomId, hasMsg: !!msg });
-              socket.emit("chat:error", { message: error });
-              ack?.({ ok: false, error });
-              return;
-            }
-
-            if (msg.length > 5000) {
-              const error = "Message is too long";
-              console.warn("[chat:send] message too long:", { socketId: socket.id, length: msg.length, roomId });
-              socket.emit("chat:error", { message: error });
-              ack?.({ ok: false, error });
-              return;
-            }
-
-            // Ensure sender is in the room
-            if (!socket.rooms.has(roomId)) {
-              const error = "Join the room before sending messages";
-              console.warn("[chat:send] sender not in room:", { socketId: socket.id, roomId, rooms: Array.from(socket.rooms) });
-              socket.emit("chat:error", { message: error });
-              ack?.({ ok: false, error });
-              return;
-            }
-
-            const payload = {
-              uid: data.uid || socket.userId,
-              email: data.email || socket.userEmail,
-              content: msg,
-              timestamp: Date.now(),
-            };
-
-            const roomSize = this.io.sockets.adapter.rooms.get(roomId)?.size || 0;
-            console.log("[chat:send] broadcasting to room:", { roomId, roomSize, from: socket.userEmail });
-
-            // Send to EVERYONE in the room (including sender)
-            socket.to(roomId).emit("message", payload);
-            ack?.({ ok: true });
-          } catch (err) {
-            console.error("[chat:send] error:", err);
-            socket.emit("chat:error", { message: "Failed to send message" });
-            ack?.({ ok: false, error: "Failed to send message" });
-          }
-        }
+        ) => this.handleChatSend(socket, data, ack)
       );
-
-
-
-
-
-
 
       
       // Handle joining a room
@@ -240,88 +148,83 @@ class RealtimeService {
 
 
 
-// private async handleChatSend(
-//   socket: AuthenticatedSocket,
-//   data: { roomId: string; uid: string; message: string; email: string }
-// ) {
+  private async handleChatSend(
+    socket: AuthenticatedSocket,
+    data: { roomId?: string; message?: string; uid?: string; email?: string },
+    ack?: (res: { ok: boolean; error?: string }) => void
+  ) {
+    try {
+      console.log("[chat:send] incoming:", {
+        socketId: socket.id,
+        userId: socket.userId,
+        email: socket.userEmail,
+        data,
+      });
 
-//   socket.roomId = data.roomId;
-  
-// }
+      const roomId = (data?.roomId || "").trim();
+      const msg = (data?.message || "").trim();
 
+      if (!roomId || !msg) {
+        const error = "roomId and message are required";
+        console.warn("[chat:send] validation failed:", {
+          socketId: socket.id,
+          roomId,
+          hasMsg: !!msg,
+        });
+        socket.emit("chat:error", { message: error });
+        ack?.({ ok: false, error });
+        return;
+      }
 
+      if (msg.length > 5000) {
+        const error = "Message is too long";
+        console.warn("[chat:send] message too long:", {
+          socketId: socket.id,
+          length: msg.length,
+          roomId,
+        });
+        socket.emit("chat:error", { message: error });
+        ack?.({ ok: false, error });
+        return;
+      }
 
-// private async handleChatSend(
-//   socket: AuthenticatedSocket,
-//   data: { roomId: string; uid: string; message: string; email?: string }
-// ) {
- 
-//   const roomId = (data.roomId || socket.roomId || "").trim();
-//   const msg = (data.message ?? "").trim();
+      // Ensure sender is in the room
+      if (!socket.rooms.has(roomId)) {
+        const error = "Join the room before sending messages";
+        console.warn("[chat:send] sender not in room:", {
+          socketId: socket.id,
+          roomId,
+          rooms: Array.from(socket.rooms),
+        });
+        socket.emit("chat:error", { message: error });
+        ack?.({ ok: false, error });
+        return;
+      }
 
-//   if (!roomId || !msg) {
-//     socket.emit("chat:error", { message: "roomId and message are required" });
-//     return;
-//   }
+      const payload = {
+        uid: data.uid || socket.userId,
+        email: data.email || socket.userEmail,
+        content: msg,
+        timestamp: Date.now(),
+      };
 
-//   // Ensure sender is in the room
-//   if (!socket.rooms.has(roomId)) {
-//     console.warn("[chat:send] sender not in room", { roomId, socketId: socket.id, rooms: [...socket.rooms] });
-//     socket.emit("chat:error", { message: "Join the room before sending messages" });
-//     return;
-//   }
+      const roomSize = this.io.sockets.adapter.rooms.get(roomId)?.size || 0;
+      console.log("[chat:send] broadcasting to room:", {
+        roomId,
+        roomSize,
+        from: socket.userEmail,
+      });
 
-//   const payload = {
-//     roomId,
-//     uid: data.uid || socket.userId,
-//     userEmail: data.email || socket.userEmail,
-//     content: msg,
-//     timestamp: Date.now(),
-//   };
-
-//   // ✅ Broadcast only to other users in the room (excludes sender)
-//   socket.to(roomId).emit("chat:send", payload);
-
-//   // Optional: Acknowledge only to the sender
-//   socket.emit("chat:ack", { roomId, ok: true });
-// }
-
-
-
-// ...existing code...
-private async handleChatSend(
-  socket: AuthenticatedSocket,
-  data: { roomId: string; uid: string; message: string; email?: string }
-) {
-  const roomId = (data.roomId || "").trim();
-  const msg = (data.message || "").trim();
-
-  if (!roomId || !msg) {
-    socket.emit("chat:error", { message: "roomId and message are required" });
-    return;
+      // Broadcast (excludes sender to match original logic)
+      socket.to(roomId).emit("message", payload);
+      ack?.({ ok: true });
+    } catch (err) {
+      console.error("[chat:send] error:", err);
+      socket.emit("chat:error", { message: "Failed to send message" });
+      ack?.({ ok: false, error: "Failed to send message" });
+    }
   }
 
-  // Only proceed if this socket is actually in the same roomId
-  if (!socket.rooms.has(roomId)) {
-    socket.emit("chat:error", { message: "Not joined to this room" });
-    return;
-  }
-
-  const payload = {
-    roomId,
-    uid: data.uid,
-    userEmail: data.email,
-    content: msg,
-    timestamp: Date.now(),
-  };
-
-  // Send to other users in the same room (exclude sender)
-  socket.to(roomId).emit("chat:send", payload);
-
-  // Optional ack to sender
-  socket.emit("chat:ack", { roomId, ok: true });
-}
-// ...existing code...
 
 
 
@@ -334,6 +237,7 @@ private async handleChatSend(
     // Join the new room
     socket.roomId = roomId;
     socket.join(roomId);
+    socket.to(roomId).emit('message', { content: `${socket.userEmail} has joined the chat` });
 
     // Add user to room participants
     if (!this.roomParticipants[roomId]) {
@@ -356,11 +260,8 @@ private async handleChatSend(
       timestamp: Date.now(),
     };
 
-  
-
     socket.to(roomId).emit("joinRoom", joinEvent);
    
-
     // Send current participants list to the new user
     const participants = Array.from(this.roomParticipants[roomId].values());
     socket.emit("room-participants", { roomId, participants });
@@ -368,11 +269,13 @@ private async handleChatSend(
     console.log(`✅ User ${socket.userEmail} joined room ${roomId}`);
   }
 
+
+
   private handleLeaveRoom(socket: AuthenticatedSocket) {
     if (!socket.roomId || !socket.userId) return;
 
     const roomId = socket.roomId;
-    socket.to(roomId).emit('message', { content: 'A user has left the chat' });
+    socket.to(roomId).emit('message', { content: `${socket.userEmail} has left the chat` });
     socket.leave(roomId);
 
     // Remove user from room participants
@@ -392,12 +295,13 @@ private async handleChatSend(
       userEmail: socket.userEmail,
       timestamp: Date.now(),
     });
-
-    
+  
 
     socket.roomId = undefined;
     console.log(`✅ User ${socket.userEmail} left room ${roomId}`);
   }
+
+
 
   private handleCodeChange(socket: AuthenticatedSocket, data: { content: string; cursorPosition?: { line: number; column: number } }) {
     if (!socket.roomId || !socket.userId || !socket.userEmail) return;
@@ -417,6 +321,8 @@ private async handleChatSend(
     console.log(`📝 Code change by ${socket.userEmail} in room ${socket.roomId}`);
   }
 
+
+
   private handleCursorMove(socket: AuthenticatedSocket, data: { position: { line: number; column: number } }) {
     if (!socket.roomId || !socket.userId || !socket.userEmail) return;
 
@@ -431,6 +337,8 @@ private async handleChatSend(
     // Broadcast cursor position to all other users in the room
     socket.to(socket.roomId).emit("cursor-moved", cursorEvent);
   }
+
+
 
   private handleSelectionChange(socket: AuthenticatedSocket, data: { startPos: { line: number; column: number }; endPos: { line: number; column: number } }) {
     if (!socket.roomId || !socket.userId || !socket.userEmail) return;
@@ -448,15 +356,21 @@ private async handleChatSend(
     socket.to(socket.roomId).emit("selection-changed", selectionEvent);
   }
 
+
+
   private handleDisconnect(socket: AuthenticatedSocket) {
     console.log(`❌ User ${socket.userEmail} (${socket.userId}) disconnected`);
     this.handleLeaveRoom(socket);
   }
 
+
+
   // Public methods for external use
   public getRoomParticipants(roomId: string): UserInfo[] {
     return this.roomParticipants[roomId] ? Array.from(this.roomParticipants[roomId].values()) : [];
   }
+
+
 
   public kickUserFromRoom(roomId: string, userId: string) {
     if (this.roomParticipants[roomId]) {
@@ -471,6 +385,8 @@ private async handleChatSend(
     }
   }
 
+
+  
   public broadcastToRoom(roomId: string, event: string, data: any) {
     this.io.to(roomId).emit(event, data);
   }
