@@ -2,6 +2,7 @@ import { Server as SocketServer, Socket } from "socket.io";
 import { Server as HttpServer } from "http";
 import jwt from "jsonwebtoken";
 import { addChatMessage, getRoomChatMessages } from "./chatService"; // Import chat service
+import e from "express";
 
 
 interface AuthenticatedSocket extends Socket {
@@ -63,13 +64,6 @@ class RealtimeService {
   private setupSocketHandlers() {
     this.io.use(this.authenticateSocket.bind(this));
 
-    // a user connect
-    // this.io.on("connection", (socket: AuthenticatedSocket) => {
-    //     console.log("A user connected:", socket.id);
-    //     // ...other handlers...
-
-    //     socket.emit("message", { content: "Welcome to the chat!" });
-    // });
 
     this.io.on("connection", (socket: AuthenticatedSocket) => {
       console.log("A user connected:", socket.id);
@@ -79,10 +73,41 @@ class RealtimeService {
       socket.emit("message", { content: "Welcome to the chat!" });
 
       // Broadcast when a user connects
-      socket.broadcast.emit('message', { content: 'A user has joined the chat' });
+      
+      socket.broadcast.emit('message', { content: 'A user has connected' });
+ 
+      // Handle disconnect
+      socket.on("disconnect", () => {
+        this.io.emit('message', { content: 'A user has disconnected' });
+        this.handleDisconnect(socket);
+      });
 
+      // Listen for chatMessage
+      socket.on("chat:send", (data: { roomId: string; uid: string; message: string; email: string }) => {
+
+        const roomId = data.roomId || socket.roomId;
+        if (!roomId) {
+          socket.emit("chat:error", { message: "No room joined" });
+          return;
+        }
+
+        // console.log("[chat:send] event received:", data);
+        socket.broadcast.to(roomId).emit('message', { content: data.message });
+
+
+        // this.handleChatSend(socket, data);
+      });
+
+
+
+
+
+
+
+      
       // Handle joining a room
-      socket.on("join-room", (data: { roomId: string }) => {
+      socket.on("joinRoom", (data: { roomId: string }) => {
+        
         this.handleJoinRoom(socket, data.roomId);
       });
 
@@ -90,41 +115,6 @@ class RealtimeService {
       socket.on("leave-room", () => {
         this.handleLeaveRoom(socket);
       });
-
-
-      // socket.on(
-      //   "chat:send",
-      //   async (data: { roomId: string; userId?: string; content?: string; message?: string }) => {
-      //     const uid = data.userId || socket.userId!;
-
-      //     // 🔑 Normalize message field
-      //     const msg = (data.content ?? data.message ?? "").trim();
-
-      //     console.log("[chat:send] received =>", {
-      //       roomId: data.roomId,
-      //       uid,
-      //       contentLen: msg.length,
-      //     });
-
-      //     if (!msg) {
-      //       console.warn("[chat:send] message is missing or empty");
-      //       socket.emit("chat:error", { message: "Message cannot be empty" });
-      //       return;
-      //     }
-
-      //     try {
-      //       await this.handleChatSend(socket, { roomId: data.roomId, uid, message: msg });
-      //       console.log("[chat:send] handled successfully", {
-      //         roomId: data.roomId,
-      //         uid,
-      //         contentLen: msg.length,
-      //       });
-      //     } catch (e) {
-      //       console.error("[chat:send] failed:", e);
-      //     }
-      //   }
-      // );
-
 
 
       // Handle code changes
@@ -142,18 +132,7 @@ class RealtimeService {
         this.handleSelectionChange(socket, data);
       });
 
-      // Handle disconnect
-      socket.on("disconnect", () => {
-        this.io.emit('message', { content: 'A user has left the chat' });
-        this.handleDisconnect(socket);
-      });
 
-      // Listen for chatMessage
-      socket.on("chat:send", (data: { roomId: string; uid: string; message: string }) => {
-        // console.log("[chat:send] event received:", data);
-        this.io.emit('message', { content: data.message });
-        this.handleChatSend(socket, data);
-      });
     });
   }
 
@@ -184,70 +163,88 @@ class RealtimeService {
 
 
 
+// private async handleChatSend(
+//   socket: AuthenticatedSocket,
+//   data: { roomId: string; uid: string; message: string; email: string }
+// ) {
+
+//   socket.roomId = data.roomId;
+  
+// }
+
+
 
 // private async handleChatSend(
 //   socket: AuthenticatedSocket,
-//   data: { roomId: string; uid: string; message: string }
+//   data: { roomId: string; uid: string; message: string; email?: string }
 // ) {
-//   if (!data.roomId || !data.uid || !data.message?.trim()) {
-//     console.warn("[handleChatSend] missing field(s)", {
-//       uid: data.uid,
-//       roomId: data.roomId,
-//       message: data.message,
-//     });
-//     socket.emit("chat:error", { message: "roomId, uid and message are required" });
+ 
+//   const roomId = (data.roomId || socket.roomId || "").trim();
+//   const msg = (data.message ?? "").trim();
+
+//   if (!roomId || !msg) {
+//     socket.emit("chat:error", { message: "roomId and message are required" });
 //     return;
 //   }
 
-//   try {
-//     console.log("[handleChatSend] inserting into array =>", {
-//       room_id: data.roomId,
-//       uid: data.uid,
-//       messageLen: data.message.length,
-//     });
-
-//     const savedMessage = await addChatMessage(data.roomId, data.uid, data.message);
-
-//     this.io.to(data.roomId).emit("chat:new", {
-//       roomId: data.roomId,
-//       message: savedMessage,
-//     });
-//   } catch (err) {
-//     console.error("[handleChatSend] DB insert FAILED:", err);
-//     socket.emit("chat:error", { message: "Failed to send message" });
+//   // Ensure sender is in the room
+//   if (!socket.rooms.has(roomId)) {
+//     console.warn("[chat:send] sender not in room", { roomId, socketId: socket.id, rooms: [...socket.rooms] });
+//     socket.emit("chat:error", { message: "Join the room before sending messages" });
+//     return;
 //   }
+
+//   const payload = {
+//     roomId,
+//     uid: data.uid || socket.userId,
+//     userEmail: data.email || socket.userEmail,
+//     content: msg,
+//     timestamp: Date.now(),
+//   };
+
+//   // ✅ Broadcast only to other users in the room (excludes sender)
+//   socket.to(roomId).emit("chat:send", payload);
+
+//   // Optional: Acknowledge only to the sender
+//   socket.emit("chat:ack", { roomId, ok: true });
 // }
 
+
+
+// ...existing code...
 private async handleChatSend(
   socket: AuthenticatedSocket,
-  data: { roomId: string; uid: string; message: string }
+  data: { roomId: string; uid: string; message: string; email?: string }
 ) {
-  if (!data.roomId || !data.uid || !data.message?.trim()) {
-    // console.warn("[handleChatSend] missing field(s)", {
-    //   uid: data.uid,
-    //   roomId: data.roomId,
-    //   message: data.message,
-    // });
-    socket.emit("chat:error", { message: "roomId, uid and message are required" });
+  const roomId = (data.roomId || "").trim();
+  const msg = (data.message || "").trim();
+
+  if (!roomId || !msg) {
+    socket.emit("chat:error", { message: "roomId and message are required" });
+    return;
+  }
+
+  // Only proceed if this socket is actually in the same roomId
+  if (!socket.rooms.has(roomId)) {
+    socket.emit("chat:error", { message: "Not joined to this room" });
     return;
   }
 
   const payload = {
-    roomId: data.roomId,
+    roomId,
     uid: data.uid,
-    content: data.message,
+    userEmail: data.email,
+    content: msg,
     timestamp: Date.now(),
   };
 
-  // console.log("[handleChatSend] broadcasting =>", {
-  //   room_id: data.roomId,
-  //   uid: data.uid,
-  //   messageLen: data.message.length,
-  // });
+  // Send to other users in the same room (exclude sender)
+  socket.to(roomId).emit("chat:send", payload);
 
-  // No DB insert — just broadcast to everyone in the room
-  this.io.to(data.roomId).emit("chat:new", payload);
+  // Optional ack to sender
+  socket.emit("chat:ack", { roomId, ok: true });
 }
+// ...existing code...
 
 
 
@@ -282,7 +279,10 @@ private async handleChatSend(
       timestamp: Date.now(),
     };
 
-    socket.to(roomId).emit("user-joined", joinEvent);
+  
+
+    socket.to(roomId).emit("joinRoom", joinEvent);
+   
 
     // Send current participants list to the new user
     const participants = Array.from(this.roomParticipants[roomId].values());
@@ -295,6 +295,7 @@ private async handleChatSend(
     if (!socket.roomId || !socket.userId) return;
 
     const roomId = socket.roomId;
+    socket.to(roomId).emit('message', { content: 'A user has left the chat' });
     socket.leave(roomId);
 
     // Remove user from room participants
@@ -314,6 +315,8 @@ private async handleChatSend(
       userEmail: socket.userEmail,
       timestamp: Date.now(),
     });
+
+    
 
     socket.roomId = undefined;
     console.log(`✅ User ${socket.userEmail} left room ${roomId}`);
