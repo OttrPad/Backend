@@ -101,6 +101,10 @@ class RealtimeService {
         this.handleLeaveRoom(socket);
       });
 
+      // Handle leaving a chat
+      // socket.on("leave chat", () => {
+      //   this.handleLeaveChat(socket);
+      // });
 
       // Handle code changes
       socket.on("code-change", (data: { content: string; cursorPosition?: { line: number; column: number } }) => {
@@ -301,6 +305,21 @@ class RealtimeService {
     console.log(`✅ User ${socket.userEmail} left room ${roomId}`);
   }
 
+
+  // private handleLeaveChat(socket: AuthenticatedSocket) {
+  //   if (!socket.roomId || !socket.userId) return;
+
+  //   const roomId = socket.roomId;
+  //   socket.to(roomId).emit('message', { content: `${socket.userEmail} has left the chat` });
+
+  //   // Notify others about user leaving
+  //   socket.to(roomId).emit("user-left", {
+  //     roomId,
+  //     userId: socket.userId,
+  //     userEmail: socket.userEmail,
+  //     timestamp: Date.now(),
+  //   });
+  // }
 
 
   private handleCodeChange(socket: AuthenticatedSocket, data: { content: string; cursorPosition?: { line: number; column: number } }) {
