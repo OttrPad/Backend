@@ -467,6 +467,309 @@ curl -H "Authorization: Bearer <jwt>" \
 
 ---
 
+---
+
+## ✅ Email-Only Invitation System (Latest Update)
+
+### Problem Solved
+
+The system was refactored to support inviting users who don't have accounts yet. The original implementation required a `user_id` in the `allowed_emails` table, which prevented inviting unregistered users.
+
+### Key Changes Made
+
+#### Database Schema Simplification:
+
+- **Removed `user_id` field** from `allowed_emails` table
+- **Email-only identification** for invitations
+- **Simplified unique constraint** on (room_id, email) only
+
+#### Service Layer Updates:
+
+- **`allowedEmailService.ts`**: All functions now use email-only parameters
+- **`roomUserService.ts`**: Updated `getRoomParticipants()` and `processUserJoinRoom()` for email-only flow
+- **`roomAccessController.ts`**: Removed user_id validation from all access management endpoints
+
+#### Participant Listing Enhancement:
+
+- **Combined view**: Shows both actual members and pending email invitations
+- **Status differentiation**:
+  - `"member"` status for users in room_users table
+  - `"invited"` status for emails in allowed_emails table
+- **Different data structures**:
+  - Members: Include `user_id`, `joined_at`
+  - Invited: Include `email`, `invited_at`, `invited_by`
+
+### Current Flow for Unregistered Users:
+
+1. **Room creator invites email**: `POST /api/rooms/:id/access/add`
+
+   ```json
+   {
+     "email": "newuser@example.com",
+     "access_level": "editor"
+   }
+   ```
+
+2. **Email appears in participant list as "invited"**:
+
+   ```json
+   {
+     "email": "newuser@example.com",
+     "status": "invited",
+     "user_type": "editor",
+     "invited_at": "2025-09-06T10:00:00Z",
+     "invited_by": "creator-user-id"
+   }
+   ```
+
+3. **User registers/logs in with that email**
+
+4. **User joins room**: System automatically:
+   - Finds email in `allowed_emails` table
+   - Adds user to `room_users` with specified access level
+   - Removes email from `allowed_emails` (invitation consumed)
+   - User now appears as "member" in participant list
+
+### Benefits:
+
+- ✅ **True unregistered user support**: Can invite anyone via email
+- ✅ **Simplified API**: No need to specify user_id for invitations
+- ✅ **Atomic transitions**: Clean movement from invited to member status
+- ✅ **Clear participant view**: Easy to see who's invited vs who's joined
+
+### Permission Model:
+
+**What ANY room member can do:**
+
+- View participant list (`GET /api/rooms/:id/participants`)
+- See who's in the room with their email addresses and roles
+- See pending email invitations (status: "invited")
+
+**What only ADMINS can do:**
+
+- Add email invitations (`POST /api/rooms/:id/access/add`)
+- Remove email invitations (`DELETE /api/rooms/:id/access/remove`)
+- Update invitation access levels (`PUT /api/rooms/:id/access/update`)
+- View detailed access list with emails (`GET /api/rooms/:id/access`)
+- Delete rooms (creator only)
+
+**Enhanced Participant Information:**
+
+- **For Members**: Returns `user_id`, `email`, `status: "member"`, `user_type`, `joined_at`
+- **For Invited Users**: Returns `email`, `status: "invited"`, `user_type`, `invited_at`, `invited_by`
+- **Email Resolution**: Member emails are fetched from Supabase auth.users table
+
+**Security Benefits:**
+
+- Regular members can see who's in the room for collaboration
+- Member email addresses visible to facilitate communication
+- Sensitive operations (inviting/removing users) restricted to admins
+
+### Enhanced Participant Response Structure
+
+The `GET /api/rooms/:id/participants` endpoint now returns comprehensive user information for better collaboration experience.
+
+**Response Structure:**
+
+```json
+{
+  "message": "Room participants retrieved successfully",
+  "room": {
+    "id": "123",
+    "name": "My Coding Session"
+  },
+  "participants": [
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440000",
+      "email": "john.doe@example.com",
+      "status": "member",
+      "user_type": "admin",
+      "joined_at": "2025-09-06T10:00:00Z"
+    },
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440001",
+      "email": "jane.smith@example.com",
+      "status": "member",
+      "user_type": "editor",
+      "joined_at": "2025-09-06T10:15:00Z"
+    },
+    {
+      "email": "invited.user@example.com",
+      "status": "invited",
+      "user_type": "editor",
+      "invited_at": "2025-09-06T09:45:00Z",
+      "invited_by": "550e8400-e29b-41d4-a716-446655440000"
+    }
+  ],
+  "total_count": 3
+}
+```
+
+**Key Improvements:**
+
+1. **Member Information**:
+   - ✅ `user_id`: Unique identifier
+   - ✅ `email`: User's email address (fetched from auth.users)
+   - ✅ `status`: Always "member" for joined users
+   - ✅ `user_type`: Role in room (admin/editor/viewer)
+   - ✅ `joined_at`: When they joined the room
+
+2. **Invited User Information**:
+   - ✅ `email`: Invited email address
+   - ✅ `status`: Always "invited" for pending invitations
+   - ✅ `user_type`: Intended role (editor/viewer)
+   - ✅ `invited_at`: When invitation was sent
+   - ✅ `invited_by`: User ID who sent the invitation
+
+3. **Frontend Benefits**:
+   - Can display actual names/emails for better UX
+   - Clear visual distinction between members and pending invites
+   - Easy to implement user avatars or profile features
+   - Facilitates @mentions and user tagging in editors
+
+**Technical Implementation:**
+
+- **Email Resolution**: Uses `supabase.auth.admin.getUserById()` to fetch email addresses
+- **Error Handling**: Gracefully handles cases where user email cannot be fetched
+- **Performance**: Email resolution done per user (could be optimized with batch queries)
+- **Privacy**: Email addresses visible to all room members for collaboration
+
+### Permission Testing Scenarios
+
+**✅ What ANY room member can do:**
+
+- View participant list with full details (including emails)
+- See who's in the room and their roles
+- See pending email invitations
+
+**❌ What only ADMINS can do:**
+
+- Add email invitations (`POST /api/rooms/:id/access/add`)
+- Remove email invitations (`DELETE /api/rooms/:id/access/remove`)
+- Update invitation access levels (`PUT /api/rooms/:id/access/update`)
+- View detailed access management list (`GET /api/rooms/:id/access`)
+
+**Test Cases:**
+
+1. **Admin View**: ✅ Can see all participants with full details
+2. **Editor View**: ✅ Can see all participants with full details
+3. **Viewer View**: ✅ Can see all participants with full details
+4. **Non-Member**: ❌ 403 Forbidden - "Only room members can view participants"
+5. **Editor trying to manage access**: ❌ 403 Forbidden - "Only room admin can manage access"
+
+---
+
+## ✅ Frontend Integration Fixes (Latest Update)
+
+### Issues Identified and Resolved
+
+#### 1. ✅ Participants API Response Format Fixed
+
+**Problem**: Inconsistent user data structure and missing required fields.
+
+**Solution**: Standardized response format for all participants:
+
+```json
+{
+  "participants": [
+    {
+      "user_id": "uuid-123", // Always present for members, null for invited
+      "email": "user@example.com", // Always present for all participants
+      "user_type": "admin", // Always present (admin|editor|viewer)
+      "status": "member", // Always present (member|invited)
+      "joined_at": "2024-01-15T10:30:00Z" // Present for members only
+    },
+    {
+      "user_id": null, // null for invited users
+      "email": "invited@example.com", // Email address
+      "user_type": "editor", // Intended role after joining
+      "status": "invited", // Status
+      "invited_at": "2024-01-15T09:00:00Z", // When invited
+      "invited_by": "uuid-456" // Who sent invitation
+    }
+  ]
+}
+```
+
+#### 2. ✅ User Profile Endpoint Added
+
+**New Endpoint**: `GET /api/users/profile`
+
+**Response**:
+
+```json
+{
+  "user": {
+    "id": "uuid-123",
+    "email": "user@example.com",
+    "name": "John Doe" // Display name from auth metadata
+  }
+}
+```
+
+**Benefits**:
+
+- Frontend can get complete user profile data
+- Supports display names for better UX
+- Centralized user information endpoint
+
+#### 3. ✅ Room Creator Information Verified
+
+**Confirmed Working**:
+
+- All room endpoints return `created_by` field
+- Room participants correctly identify room creator as admin
+- Room listing shows creator information for proper UI rendering
+
+#### 4. ✅ Duplicate User Prevention Enhanced
+
+**Improvements Made**:
+
+- Added deduplication logic in `getRoomParticipants()`
+- Prevents duplicate user_id entries
+- Prevents showing invited users who are already members
+- Added warning logs for detected duplicates
+- Ensures one entry per user across member/invited status
+
+#### 5. ✅ Access Control Validation Confirmed
+
+**Verified Working**:
+
+- ✅ Viewers/editors can access participants endpoint
+- ✅ Only admins can access invite management endpoints
+- ✅ Proper 403 error responses for unauthorized access
+- ✅ Room isolation - users only see participants in their rooms
+
+### Technical Improvements
+
+**Enhanced Data Consistency**:
+
+- Standardized all participant objects with required fields
+- Added TypeScript-style const assertions for status values
+- Improved error handling for edge cases
+
+**Performance Optimizations**:
+
+- Email resolution with graceful fallbacks
+- Duplicate detection using Set data structures
+- Efficient database queries with proper indexing
+
+**Security Enhancements**:
+
+- Multi-layer permission checking (creator, admin, member)
+- Proper error messages without information leakage
+- Email visibility controlled by membership status
+
+### Frontend Integration Checklist
+
+✅ **Participants List**: Complete user data with emails and roles  
+✅ **User Profile**: Dedicated endpoint for current user info  
+✅ **Room Creator**: Properly identified in all room responses  
+✅ **No Duplicates**: Deduplication logic prevents UI issues  
+✅ **Access Control**: Proper permission handling for all operations  
+✅ **Error Handling**: Clear error responses for all failure cases  
+✅ **Type Safety**: Consistent data structures across all endpoints
+
 ## Current System Architecture
 
 ```
@@ -569,6 +872,8 @@ Future Microservices:
 
 7. **Swagger Integration**: Complete API documentation with interactive testing capabilities
 
+8. **Email-Only Invitations**: Simplified invitation system supporting unregistered users without requiring user_id
+
 ### Challenges Overcome:
 
 1. **Monorepo TypeScript Configuration**: Resolved module resolution and shared package issues
@@ -576,6 +881,8 @@ Future Microservices:
 3. **Service Communication**: Established secure header-based authentication between microservices
 4. **Request Flow Architecture**: Designed clean separation between authentication layer and business logic
 5. **Direct Access Prevention**: Implemented middleware to ensure all requests go through proper gateway authentication
+6. **Database Case Sensitivity**: Fixed table naming issues (Allowed_emails vs allowed_emails)
+7. **Email-Only Invitation Logic**: Refactored from user_id-based to pure email-based invitations for unregistered user support
 
 ### Performance Considerations:
 
@@ -661,26 +968,26 @@ NODE_ENV=development
 
 ### Access Management System
 
-- **Invite by Email**: Room creators can add email addresses to the allowed access list
-- **User Membership Validation**: Users must be members of the room (in room_users table) before being granted email-based access
+- **Invite by Email**: Room creators can add email addresses to the allowed access list (NO user_id required)
+- **Email-Only Invitations**: Perfect for inviting unregistered users who don't have accounts yet
 - **Access Transition Flow**: When users join for the first time, they are atomically moved from `allowed_emails` to `room_users`
 - **One-time Invitations**: Email access is "consumed" on first join - user transitions from invitation to membership
 - **Access Levels**: Each invited email gets either 'viewer' or 'editor' permissions
 - **Access Control**: Only emails in the allowed list (or room creator) can join rooms
 - **Permission Management**: Room creators can update or remove email access at any time
-- **Database Constraints**: Triggers enforce that user_id exists in Room_users before allowing access grants
-- **Atomic Operations**: Supabase function ensures consistent state during user transitions
+- **Atomic Operations**: TypeScript service ensures consistent state during user transitions
 
 ### Database Schema Updates
 
 - **Rooms Table**: Added `room_code` column with unique constraint and format validation
 - **Room_users Table**: Enhanced to track user roles (admin/editor/viewer)
-- **Allowed_emails Table**: Enhanced with `user_id` field and validation triggers
-  - Added `user_id` column to link access grants to specific users
-  - Added database trigger to validate user membership before granting access
-  - Added unique constraint on (room_id, email, user_id) to prevent duplicates
-- **Migration Support**: SQL migrations for room code support and enhanced access management
-- **Supabase Functions**: `transition_user_to_room` function for atomic user transitions
+- **Allowed_emails Table**: Email-only invitation system (NO user_id field)
+  - Stores email address and access level for unregistered users
+  - Uses email as the primary identifier for invitations
+  - Contains invited_by field to track who sent the invitation
+  - Prevents duplicate invitations for the same email/room combination
+- **Migration Support**: SQL migrations for room code support and email-based access management
+- **Manual Transition Logic**: Direct TypeScript implementation for atomic user transitions (replaces Supabase function)
 
 ### User Join Flow
 
@@ -689,11 +996,11 @@ NODE_ENV=development
 1. Creator joins room → Added directly to `room_users` as admin
 2. No email validation required
 
-**For Invited Users (First Time):**
+**For Invited Users (First Time - Unregistered Users):**
 
-1. Creator adds email to `allowed_emails` with specific `user_id`
-2. User tries to join → System finds email access
-3. Supabase function atomically:
+1. Creator adds email to `allowed_emails` with desired access level (NO user_id required)
+2. User registers/logs in and tries to join → System finds email access by matching email
+3. TypeScript service atomically:
    - Adds user to `room_users` with appropriate role
    - Removes entry from `allowed_emails` (invitation consumed)
 4. Returns success with user role and transition info
@@ -717,9 +1024,9 @@ GET /api/rooms               # List user's rooms (only actual memberships)
 GET /api/rooms/:id           # Get room details
 
 # Access Management (Creator only) - Manages Email Invitations
-POST /api/rooms/:id/access/add     # Add email invitation (requires user_id)
+POST /api/rooms/:id/access/add     # Add email invitation (email-only, no user_id)
 DELETE /api/rooms/:id/access/remove # Remove email invitation
-PUT /api/rooms/:id/access/update    # Update email invitation access level (requires user_id)
+PUT /api/rooms/:id/access/update    # Update email invitation access level
 GET /api/rooms/:id/access          # Get pending email invitations list
 ```
 
@@ -739,24 +1046,30 @@ GET /api/rooms/:id/access          # Get pending email invitations list
 // POST /api/rooms/:id/access/add
 {
   "email": "user@example.com",
-  "access_level": "editor",
-  "user_id": "123e4567-e89b-12d3-a456-426614174000"  // Required: Must be in room_users
+  "access_level": "editor"
 }
 
 // PUT /api/rooms/:id/access/update
 {
   "email": "user@example.com",
-  "access_level": "viewer",
-  "user_id": "123e4567-e89b-12d3-a456-426614174000"  // Required: Must be in room_users
+  "access_level": "viewer"
 }
 ```
 
+**Permission-Based Access Control:**
+
+- **Participant Viewing**: Any room member (viewer, editor, admin) can view the participant list
+- **Access Management**: Only room admins (creator or assigned admin) can add/remove/update email invitations
+- **Room Operations**: Room-level operations (delete, etc.) restricted to creators/admins
+- **Privacy Protection**: Full access list (with emails) only visible to admins
+
 **Validation Rules:**
 
-- `user_id` must exist in the `Room_users` table for the specified room
-- Access can only be granted to users who are already room members
-- Database triggers enforce membership validation at the database level
-- API layer validates membership before allowing access grants/updates
+- Email must be a valid format
+- Access level must be either 'viewer' or 'editor'
+- Only room creators/admins can manage access
+- Duplicate email invitations are prevented
+- No user_id required - perfect for inviting unregistered users
 
 POST /api/rooms/join # Join by code
 POST /api/rooms/:id/join # Join by ID
@@ -794,8 +1107,9 @@ pnpm dev
 
 ---
 
-_Implementation completed on: August 20, 2025_  
-_Total implementation time: ~3.5 hours_  
+_Implementation completed on: September 6, 2025_  
+_Total implementation time: ~4.5 hours_  
 _All originally requested tasks: ✅ COMPLETED_  
 _Architecture enhancements: ✅ COMPLETED_  
-_Production-ready security: ✅ IMPLEMENTED_
+_Production-ready security: ✅ IMPLEMENTED_  
+_Email-only invitation system: ✅ COMPLETED_
