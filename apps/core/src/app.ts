@@ -6,12 +6,24 @@ import userRoutes from "./routes/user.routes";
 import { requireGatewayAuth } from "./middleware/service-auth.middleware";
 import RealtimeService from "./services/realtimeService";
 
+
+
+// Define AuthenticatedSocket type if not already defined elsewhere
+// type AuthenticatedSocket = Socket & {
+//   user?: any; // Replace 'any' with your actual user type if available
+// };
+
 const app = express();
 const httpServer = createServer(app);
+
 const PORT = process.env.CORE_PORT || 4001;
+
+
 
 // Initialize WebSocket service
 const realtimeService = new RealtimeService(httpServer);
+
+
 
 app.use(cors());
 app.use(express.json());
@@ -40,3 +52,4 @@ httpServer.listen(PORT, () => {
   console.log(`Core service running on http://localhost:${PORT}`);
   console.log(`WebSocket server ready for real-time collaboration`);
 });
+
