@@ -236,12 +236,12 @@ class RealtimeService {
     if (!socket.userId || !socket.userEmail) return;
 
     // Leave the previous room if any
-    this.handleLeaveRoom(socket);
+    // this.handleLeaveRoom(socket);
 
     // Join the new room
     socket.roomId = roomId;
     socket.join(roomId);
-    socket.to(roomId).emit('message', { content: `${socket.userEmail} has joined the chat` });
+    socket.to(roomId).emit('message', { content: `${socket.userEmail} has joined the room` });
 
     // Add user to room participants
     if (!this.roomParticipants[roomId]) {
@@ -279,7 +279,7 @@ class RealtimeService {
     if (!socket.roomId || !socket.userId) return;
 
     const roomId = socket.roomId;
-    socket.to(roomId).emit('message', { content: `${socket.userEmail} has left the chat` });
+    socket.to(roomId).emit('message', { content: `${socket.userEmail} has left the room` });
     socket.leave(roomId);
 
     // Remove user from room participants
