@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import roomRoutes from "./routes/room.routes";
+import userRoutes from "./routes/user.routes";
 import { requireGatewayAuth } from "./middleware/service-auth.middleware";
 import RealtimeService from "./services/realtimeService";
 
@@ -30,6 +31,7 @@ app.use(requireGatewayAuth);
 
 // Protected routes
 app.use("/rooms", roomRoutes);
+app.use("/users", userRoutes);
 
 // Make realtime service available globally for other controllers
 app.locals.realtimeService = realtimeService;

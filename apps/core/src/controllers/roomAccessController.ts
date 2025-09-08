@@ -7,7 +7,11 @@ import {
   checkEmailAccess,
 } from "../services/allowedEmailService";
 import { getRoomById } from "../services/roomService";
-import { getRoomParticipants, isRoomAdmin } from "../services/roomUserService";
+import {
+  getRoomParticipants,
+  isRoomAdmin,
+  isUserInRoom,
+} from "../services/roomUserService";
 
 export const getRoomParticipantsHandler = async (
   req: Request,
@@ -34,14 +38,15 @@ export const getRoomParticipantsHandler = async (
     }
 
     // Check if user has access to view participants
-    // Only room creator/admin or existing room members can view participants
+    // Room creator, admin, or any room member can view participants
     const isCreator = room.created_by === userId;
     const isAdmin = await isRoomAdmin(roomId, userId);
+    const isMember = await isUserInRoom(roomId, userId);
 
-    if (!isCreator && !isAdmin) {
+    if (!isCreator && !isAdmin && !isMember) {
       return res.status(403).json({
         error: "Forbidden",
-        message: "Only room admin or members can view participants",
+        message: "Only room members can view participants",
       });
     }
 

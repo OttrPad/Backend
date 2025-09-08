@@ -64,12 +64,20 @@ export const getRoomUsers = async (roomId: string) => {
 /**
  * Get all participants in a room including invited users and actual members
  * This combines Room_users (actual members) with Allowed_emails (invited users)
+ * For members, it includes user email from auth.users
+ * Ensures no duplicates and consistent data structure
  */
 export const getRoomParticipants = async (roomId: string) => {
-  // Get actual room members
+  // Get actual room members with user details
   const { data: roomUsers, error: roomUsersError } = await supabase
     .from("Room_users")
-    .select("uid, type, joined_at")
+    .select(
+      `
+      uid, 
+      type, 
+      joined_at
+    `
+    )
     .eq("room_id", parseInt(roomId));
 
   if (roomUsersError) throw roomUsersError;
@@ -82,33 +90,132 @@ export const getRoomParticipants = async (roomId: string) => {
 
   if (invitedError) throw invitedError;
 
-  // Combine the results
+  // Combine the results with proper deduplication
   const participants = [];
+  const seenUserIds = new Set<string>();
+  const seenEmails = new Set<string>();
 
-  // Add actual members
+  // Add actual members with user details
   if (roomUsers) {
     for (const user of roomUsers) {
+      if (seenUserIds.has(user.uid)) {
+        console.warn(`Duplicate user_id detected: ${user.uid}, skipping...`);
+        continue;
+      }
+      seenUserIds.add(user.uid);
+
+      // Get user email and profile information
+      let userEmail = null;
+      let userName = null;
+
+      try {
+        // First, try using admin client to get user details
+        const { data: userData, error: userError } =
+          await supabase.auth.admin.getUserById(user.uid);
+
+        if (!userError && userData?.user) {
+          userEmail = userData.user.email;
+          // Try to get display name from user metadata
+          userName =
+            userData.user.user_metadata?.name ||
+            userData.user.user_metadata?.full_name ||
+            userData.user.user_metadata?.display_name ||
+            null;
+
+          console.log(
+            `✅ Successfully fetched user data for ${user.uid}: email=${userEmail}, name=${userName}`
+          );
+        } else {
+          console.warn(
+            `⚠️ Admin getUserById failed for ${user.uid}:`,
+            userError
+          );
+
+          // Fallback: Try using RPC function to get basic user info
+          try {
+            console.log(`🔄 Trying RPC fallback for user ${user.uid}...`);
+            const { data: rpcData, error: rpcError } = await supabase.rpc(
+              "get_user_info",
+              {
+                user_id: user.uid,
+              }
+            );
+
+            console.log(`🔍 RPC response for ${user.uid}:`, {
+              data: rpcData,
+              error: rpcError,
+            });
+
+            if (!rpcError && rpcData && !rpcData.error) {
+              userEmail = rpcData.email;
+              userName = rpcData.name;
+              console.log(
+                `✅ RPC fallback successful for ${user.uid}: email=${userEmail}, name=${userName}`
+              );
+            } else {
+              console.warn(
+                `⚠️ RPC fallback failed for ${user.uid}:`,
+                rpcError || rpcData?.error
+              );
+              // Use basic fallback - no email/name but still include the user
+              userEmail = null;
+              userName = null;
+            }
+          } catch (rpcError) {
+            console.warn(
+              `⚠️ RPC fallback exception for ${user.uid}:`,
+              rpcError
+            );
+            // Use basic fallback - no email/name but still include the user
+            userEmail = null;
+            userName = null;
+          }
+        }
+
+        if (userEmail) {
+          seenEmails.add(userEmail.toLowerCase());
+        }
+      } catch (error) {
+        console.error(
+          `❌ Complete failure fetching user data for ${user.uid}:`,
+          error
+        );
+      }
+
       participants.push({
         user_id: user.uid,
-        status: "member",
+        email: userEmail,
+        name: userName,
+        status: "member" as const,
         user_type: user.type,
         joined_at: user.joined_at,
       });
     }
   }
 
-  // Add invited users - these are just email invitations
+  // Add invited users - only if their email isn't already a member
   if (invitedUsers) {
     for (const invite of invitedUsers) {
+      const emailLower = invite.email.toLowerCase();
+      if (seenEmails.has(emailLower)) {
+        console.warn(
+          `Email ${invite.email} is already a member, skipping invitation...`
+        );
+        continue;
+      }
+      seenEmails.add(emailLower);
+
       participants.push({
+        user_id: null, // Invited users don't have user_id yet
         email: invite.email,
-        status: "invited",
+        status: "invited" as const,
         user_type: invite.access_level,
         invited_at: invite.invited_at,
         invited_by: invite.invited_by,
       });
     }
-  }  return participants;
+  }
+  return participants;
 };
 
 /**
@@ -220,14 +327,14 @@ export const processUserJoinRoom = async (
     try {
       // Add user to room_users
       await addUserToRoom(roomId, userId, emailAccess.access_level);
-      
+
       // Remove from allowed_emails
       const { error: removeError } = await supabase
         .from("Allowed_emails")
         .delete()
         .eq("room_id", parseInt(roomId))
         .eq("email", userEmail.toLowerCase());
-      
+
       if (removeError) {
         console.error("Error removing from allowed_emails:", removeError);
         // Don't throw here, user is already added to room
@@ -248,7 +355,7 @@ export const processUserJoinRoom = async (
       throw error;
     }
   } else {
-    // No email access found 
+    // No email access found
     throw new Error("Access denied: Email not authorized for this room");
   }
 };

@@ -907,7 +907,8 @@ router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
  *       - Invited users (users with email invitations who haven't joined yet)
  *
  *       Access control:
- *       - Only room admin or members can view participants
+ *       - Any room member can view participants (members, editors, viewers, admins)
+ *       - Room creator can always view participants
  *       - Invited users show status as "invited"
  *       - Room members show status as "member"
  *     tags: [Room Access Management]
@@ -945,10 +946,15 @@ router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
  *                     properties:
  *                       user_id:
  *                         type: string
- *                         description: User ID
+ *                         nullable: true
+ *                         description: User ID (null for invited users who haven't joined yet)
  *                       email:
  *                         type: string
- *                         description: Email address (only for invited users)
+ *                         description: Email address (for both members and invited users)
+ *                       name:
+ *                         type: string
+ *                         nullable: true
+ *                         description: Display name (for members only, from user profile)
  *                       status:
  *                         type: string
  *                         enum: [member, invited]
@@ -972,7 +978,7 @@ router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
  *                   type: number
  *                   description: Total number of participants (members + invited)
  *       403:
- *         description: Access denied - Only room admin or members can view participants
+ *         description: Access denied - Only room members can view participants
  *       404:
  *         description: Room not found
  *       500:
@@ -1192,6 +1198,55 @@ router.post("/rooms/:id/save", verifySupabaseJWT, async (req, res) => {
     req,
     res
   );
+});
+
+// =============================================================================
+// USER PROFILE ROUTES
+// =============================================================================
+
+/**
+ * @swagger
+ * /api/users/profile:
+ *   get:
+ *     summary: Get current user profile
+ *     description: Retrieve profile information for the authenticated user including ID, email, and display name
+ *     tags: [User Profile]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User profile retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "User profile retrieved successfully"
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       description: User ID
+ *                       example: "550e8400-e29b-41d4-a716-446655440000"
+ *                     email:
+ *                       type: string
+ *                       description: User email address
+ *                       example: "user@example.com"
+ *                     name:
+ *                       type: string
+ *                       nullable: true
+ *                       description: User display name
+ *                       example: "John Doe"
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/users/profile", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("core", "/users/profile", req, res);
 });
 
 // =============================================================================
