@@ -104,6 +104,18 @@ const options = {
         description: "Room management operations",
       },
       {
+        name: "Room Access",
+        description: "Room access control and invitations",
+      },
+      {
+        name: "Room Access Management",
+        description: "Room participant and invitation management",
+      },
+      {
+        name: "User Profile",
+        description: "User profile and authentication information",
+      },
+      {
         name: "AI Engine",
         description: "AI-powered code assistance (Coming Soon)",
       },
