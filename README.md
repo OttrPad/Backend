@@ -10,9 +10,13 @@ Frontend (React/Next.js)
    API Gateway (Port 4000)
     ↓ (JWT Verification)
          ↓
-    Core Service (Port 4001)
-         ↓
-    Supabase Database
+  ┌─ Core Service (Port 4001) ──┐
+  │          ↓                  │
+  │   Supabase Database         │
+  │                             │
+  └─ Collaboration Service ─────┘
+     (WebSocket Port 4002)
+     (Health Port 5002)
 ```
 
 ## ✨ Features
@@ -24,6 +28,8 @@ Frontend (React/Next.js)
 - **❤️ Health Monitoring**: Real-time service health checks
 - **🛡️ CORS Protection**: Configurable origin restrictions
 - **📊 Monorepo**: Managed with Turborepo and pnpm
+- **⚡ Real-time Collaboration**: WebSocket-based document synchronization with Yjs
+- **🎯 Room Management**: Multi-user collaborative editing sessions
 
 ## 🚀 Quick Start
 
@@ -61,6 +67,8 @@ Frontend (React/Next.js)
 - 📚 **API Documentation**: http://localhost:4000/api-docs
 - ❤️ **Health Check**: http://localhost:4000/health
 - ⚙️ **Core Service**: http://localhost:4001
+- ⚡ **Collaboration WebSocket**: ws://localhost:4002
+- 🏥 **Collaboration Health**: http://localhost:5002/health
 
 ## 🔧 Environment Setup
 
@@ -101,18 +109,54 @@ curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
 
 ### Available Endpoints
 
-| Method   | Endpoint           | Description                 | Auth Required |
-| -------- | ------------------ | --------------------------- | ------------- |
-| `GET`    | `/health`          | System health check         | ❌            |
-| `GET`    | `/health/services` | Microservices health status | ❌            |
-| `GET`    | `/api/rooms`       | List rooms                  | ✅            |
-| `POST`   | `/api/rooms`       | Create room                 | ✅            |
-| `PUT`    | `/api/rooms/:id`   | Update room                 | ✅            |
-| `DELETE` | `/api/rooms/:id`   | Delete room                 | ✅            |
+| Method      | Endpoint                       | Description                 | Auth Required |
+| ----------- | ------------------------------ | --------------------------- | ------------- |
+| `GET`       | `/health`                      | System health check         | ❌            |
+| `GET`       | `/health/services`             | Microservices health status | ❌            |
+| `GET`       | `/api/rooms`                   | List rooms                  | ✅            |
+| `POST`      | `/api/rooms`                   | Create room                 | ✅            |
+| `PUT`       | `/api/rooms/:id`               | Update room                 | ✅            |
+| `DELETE`    | `/api/rooms/:id`               | Delete room                 | ✅            |
+| `GET`       | `/api/rooms/:id/participants`  | Get room participants       | ✅            |
+| `WebSocket` | `ws://localhost:4002`          | Real-time collaboration     | ✅            |
+| `GET`       | `http://localhost:5002/health` | Collaboration health check  | ❌            |
 
 ### 🎮 Interactive Testing
 
 Visit http://localhost:4000/api-docs for **Swagger UI** with built-in authentication and testing capabilities.
+
+## ⚡ WebSocket Collaboration
+
+The backend includes a real-time collaboration service powered by **Yjs** and **WebSockets** for synchronized document editing.
+
+### Quick Connection Test
+
+You can quickly test the WebSocket connection:
+
+```javascript
+const ws = new WebSocket("ws://localhost:4002");
+ws.onopen = () => console.log("✅ Connected to collaboration server");
+ws.onmessage = (event) => console.log("📨 Received:", event.data);
+```
+
+### Frontend Integration
+
+For complete frontend integration instructions including:
+
+- Authentication flow with JWT tokens
+- Yjs document synchronization
+- Monaco Editor integration
+- Real-time awareness features
+- Error handling and reconnection
+
+📖 **See:** [`FRONTEND_WEBSOCKET_GUIDE.md`](./FRONTEND_WEBSOCKET_GUIDE.md)
+
+### Service Status
+
+- **WebSocket Server**: `ws://localhost:4002`
+- **Health Endpoint**: `http://localhost:5002/health`
+- **Protocol**: Yjs WebSocket Provider with JWT authentication
+- **Features**: Document sync, user awareness, room management
 
 ## 🏢 Project Structure
 
@@ -126,11 +170,17 @@ backend/
 │   │   │   ├── services/       # Proxy service
 │   │   │   └── config/         # Swagger configuration
 │   │   └── package.json
-│   └── core/                   # Core microservice
+│   ├── core/                   # Core microservice
+│   │   ├── src/
+│   │   │   ├── controllers/    # Business logic
+│   │   │   ├── routes/         # Route handlers
+│   │   │   └── services/       # Data services
+│   │   └── package.json
+│   └── collaboration/          # Real-time collaboration service
 │       ├── src/
-│       │   ├── controllers/    # Business logic
-│       │   ├── routes/         # Route handlers
-│       │   └── services/       # Data services
+│       │   ├── services/       # WebSocket & Yjs services
+│       │   ├── middleware/     # Auth middleware
+│       │   └── types/          # TypeScript interfaces
 │       └── package.json
 ├── packages/
 │   ├── supabase/              # Shared Supabase client
@@ -176,13 +226,15 @@ open http://localhost:4000/api-docs
 
 ```bash
 # Development
-pnpm dev          # Start all services in watch mode
-pnpm build        # Build all services for production
-pnpm lint         # Run linting across all packages
+pnpm dev                    # Start all services in watch mode
+pnpm dev:collaboration      # Start only collaboration service
+pnpm build                  # Build all services for production
+pnpm lint                   # Run linting across all packages
 
 # Individual services
-cd apps/api && pnpm dev    # Run only API Gateway
-cd apps/core && pnpm dev   # Run only Core Service
+cd apps/api && pnpm dev           # Run only API Gateway
+cd apps/core && pnpm dev          # Run only Core Service
+cd apps/collaboration && pnpm dev # Run only Collaboration Service
 ```
 
 ## 📋 Production Deployment

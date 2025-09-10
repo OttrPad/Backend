@@ -5,6 +5,12 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:api": "turbo run dev --filter=api",
+    "dev:core": "turbo run dev --filter=core",
+    "dev:collaboration": "turbo run dev --filter=collaboration",
+    "build:api": "turbo run build --filter=api",
+    "build:core": "turbo run build --filter=core",
+    "build:collaboration": "turbo run build --filter=collaboration",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "clean": "turbo run clean && rm -rf node_modules"

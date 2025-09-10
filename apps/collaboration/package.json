@@ -1,0 +1,35 @@
+{
+  "name": "collaboration",
+  "private": true,
+  "version": "1.0.0",
+  "main": "dist/app.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "dotenv -e ../../.env -- nodemon --exec ts-node src/app.ts",
+    "start": "dotenv -e ../../.env -- node dist/app.js",
+    "clean": "rm -rf dist",
+    "lint": "echo 'No linting configured yet'"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "cors": "^2.8.5",
+    "ws": "^8.18.0",
+    "yjs": "^13.6.10",
+    "y-websocket": "^2.0.4",
+    "lib0": "^0.2.98",
+    "@packages/supabase": "workspace:*",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.x",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.19",
+    "@types/ws": "^8.5.12",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.8.3",
+    "ts-node": "^10.9.2",
+    "nodemon": "^3.1.10"
+  }
+}

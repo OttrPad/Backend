@@ -4,26 +4,11 @@ import { createServer } from "http";
 import roomRoutes from "./routes/room.routes";
 import userRoutes from "./routes/user.routes";
 import { requireGatewayAuth } from "./middleware/service-auth.middleware";
-import RealtimeService from "./services/realtimeService";
-
-
-
-// Define AuthenticatedSocket type if not already defined elsewhere
-// type AuthenticatedSocket = Socket & {
-//   user?: any; // Replace 'any' with your actual user type if available
-// };
 
 const app = express();
 const httpServer = createServer(app);
 
 const PORT = process.env.CORE_PORT || 4001;
-
-
-
-// Initialize WebSocket service
-const realtimeService = new RealtimeService(httpServer);
-
-
 
 app.use(cors());
 app.use(express.json());
@@ -45,11 +30,9 @@ app.use(requireGatewayAuth);
 app.use("/rooms", roomRoutes);
 app.use("/users", userRoutes);
 
-// Make realtime service available globally for other controllers
-app.locals.realtimeService = realtimeService;
-
 httpServer.listen(PORT, () => {
   console.log(`Core service running on http://localhost:${PORT}`);
-  console.log(`WebSocket server ready for real-time collaboration`);
+  console.log(
+    `Real-time collaboration is handled by the dedicated collaboration service`
+  );
 });
-

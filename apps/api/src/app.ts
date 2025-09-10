@@ -82,4 +82,7 @@ app.listen(PORT, () => {
   console.log(`🚀 API Gateway running on http://localhost:${PORT}`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
   console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
+  console.log(`⚠️  WebSocket Collaboration: ws://localhost:4002/yjs (Direct)`);
+  console.log(`📋 Frontend should connect to: ws://localhost:4002/yjs`);
+  console.log(`📝 Note: WebSocket connection bypasses API Gateway for now`);
 });

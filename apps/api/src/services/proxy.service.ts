@@ -15,10 +15,15 @@ const services: Record<string, ServiceConfig> = {
     baseUrl: process.env.CORE_SERVICE_URL || "http://localhost:4001",
     timeout: 30000, // 30 seconds
   },
+  collaboration: {
+    name: "Collaboration Service",
+    baseUrl: process.env.COLLABORATION_SERVICE_URL || "http://localhost:5002",
+    timeout: 15000, // 15 seconds
+  },
   // Add more services here as they're created
   // auth: {
   //   name: 'Auth Service',
-  //   baseUrl: process.env.AUTH_SERVICE_URL || 'http://localhost:4002',
+  //   baseUrl: process.env.AUTH_SERVICE_URL || 'http://localhost:4003',
   //   timeout: 10000
   // }
 };
