@@ -12,8 +12,13 @@ interface ServiceConfig {
 const services: Record<string, ServiceConfig> = {
   core: {
     name: "Core Service",
-    baseUrl: process.env.CORE_SERVICE_URL || "http://localhost:4001",
+    baseUrl: process.env.CORE_SERVICE_URL || "http://localhost:3001",
     timeout: 30000, // 30 seconds
+  },
+  collaboration: {
+    name: "Collaboration Service",
+    baseUrl: process.env.COLLABORATION_SERVICE_URL || "http://localhost:5002",
+    timeout: 15000, // 15 seconds for real-time features
   },
   // Add more services here as they're created
   // auth: {

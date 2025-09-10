@@ -16,11 +16,6 @@ import {
   getRoomAllowedEmailsHandler,
   getRoomParticipantsHandler,
 } from "../controllers/roomAccessController";
-import {
-  kickUserFromRoomHandler,
-  broadcastToRoomHandler,
-  saveRoomContentHandler,
-} from "../controllers/realtimeController";
 
 const router: Router = Router();
 
@@ -71,10 +66,7 @@ router.delete("/:id/access/remove", removeEmailFromRoomHandler); // DELETE /room
 router.put("/:id/access/update", updateEmailAccessHandler); // PUT /rooms/:id/access/update -> update email access level
 router.get("/:id/access", getRoomAllowedEmailsHandler); // GET /rooms/:id/access -> get room allowed emails
 
-// Realtime collaboration routes
-router.get("/:id/participants", getRoomParticipantsHandler); // GET /rooms/:id/participants -> get current participants
-router.post("/:id/kick", kickUserFromRoomHandler); // POST /rooms/:id/kick -> kick user from room
-router.post("/:id/broadcast", broadcastToRoomHandler); // POST /rooms/:id/broadcast -> broadcast event to room
-router.post("/:id/save", saveRoomContentHandler); // POST /rooms/:id/save -> save room content
+// Room participants route
+router.get("/:id/participants", getRoomParticipantsHandler); // GET /rooms/:id/participants -> get room participants
 
 export default router;

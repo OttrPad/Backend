@@ -82,4 +82,5 @@ app.listen(PORT, () => {
   console.log(`🚀 API Gateway running on http://localhost:${PORT}`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
   console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
+  console.log(`🔌 Chat WebSocket: Connect directly to ws://localhost:5002`);
 });
