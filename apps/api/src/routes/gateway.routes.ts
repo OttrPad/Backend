@@ -894,6 +894,236 @@ router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
 
 // =============================================================================
 // REALTIME COLLABORATION ENDPOINTS
+// Proxied to Collaboration Service
+// =============================================================================
+
+/**
+ * @swagger
+ * /api/collaboration/health:
+ *   get:
+ *     summary: Collaboration service health
+ *     description: Get health status and features of the collaboration service
+ *     tags: [Collaboration]
+ *     responses:
+ *       200:
+ *         description: Collaboration service health information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "ok"
+ *                 service:
+ *                   type: string
+ *                   example: "collaboration"
+ *                 features:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   example: ["real-time chat", "code collaboration", "cursor tracking"]
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.get("/collaboration/health", async (req, res) => {
+  await serviceProxy.proxyRequest(
+    "collaboration",
+    "/api/collaboration/health",
+    req,
+    res
+  );
+});
+
+/**
+ * @swagger
+ * /api/collaboration/rooms/{roomId}/info:
+ *   get:
+ *     summary: Get collaboration room info
+ *     description: Get collaboration-specific information for a room
+ *     tags: [Collaboration]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Room ID
+ *     responses:
+ *       200:
+ *         description: Room collaboration information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 roomId:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                 features:
+ *                   type: object
+ *                   properties:
+ *                     chat:
+ *                       type: boolean
+ *                     codeSync:
+ *                       type: boolean
+ *                     cursorTracking:
+ *                       type: boolean
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       401:
+ *         description: Unauthorized
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.get(
+  "/collaboration/rooms/:roomId/info",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/rooms/${req.params.roomId}/info`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/collaboration/rooms/{roomId}/stats:
+ *   get:
+ *     summary: Get room collaboration statistics
+ *     description: Get real-time statistics for a collaboration room
+ *     tags: [Collaboration]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Room ID
+ *     responses:
+ *       200:
+ *         description: Room statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 roomId:
+ *                   type: string
+ *                 activeUsers:
+ *                   type: integer
+ *                 messagesCount:
+ *                   type: integer
+ *                 codeChanges:
+ *                   type: integer
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       401:
+ *         description: Unauthorized
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.get(
+  "/collaboration/rooms/:roomId/stats",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/rooms/${req.params.roomId}/stats`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/collaboration/rooms/{roomId}/broadcast:
+ *   post:
+ *     summary: Broadcast event to collaboration room
+ *     description: Send custom events to all users in a collaboration room
+ *     tags: [Collaboration]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Room ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - event
+ *               - data
+ *             properties:
+ *               event:
+ *                 type: string
+ *                 description: Event name to broadcast
+ *                 example: "custom-notification"
+ *               data:
+ *                 type: object
+ *                 description: Event data
+ *                 example:
+ *                   message: "Session will end soon"
+ *     responses:
+ *       200:
+ *         description: Event broadcasted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 roomId:
+ *                   type: string
+ *                 event:
+ *                   type: string
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.post(
+  "/collaboration/rooms/:roomId/broadcast",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/rooms/${req.params.roomId}/broadcast`,
+      req,
+      res
+    );
+  }
+);
+
+// =============================================================================
+// ROOM MANAGEMENT ROUTES
+// Proxied to Core Service
 // =============================================================================
 
 /**
@@ -911,7 +1141,7 @@ router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
  *       - Room creator can always view participants
  *       - Invited users show status as "invited"
  *       - Room members show status as "member"
- *     tags: [Room Access Management]
+ *     tags: [Room Management]
  *     security:
  *       - BearerAuth: []
  *     parameters:
@@ -924,59 +1154,6 @@ router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
  *     responses:
  *       200:
  *         description: Room participants retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Room participants retrieved successfully"
- *                 room:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     name:
- *                       type: string
- *                 participants:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       user_id:
- *                         type: string
- *                         nullable: true
- *                         description: User ID (null for invited users who haven't joined yet)
- *                       email:
- *                         type: string
- *                         description: Email address (for both members and invited users)
- *                       name:
- *                         type: string
- *                         nullable: true
- *                         description: Display name (for members only, from user profile)
- *                       status:
- *                         type: string
- *                         enum: [member, invited]
- *                         description: User status in the room
- *                       user_type:
- *                         type: string
- *                         enum: [admin, editor, viewer]
- *                         description: Access level in the room
- *                       joined_at:
- *                         type: string
- *                         format: date-time
- *                         description: When user joined (only for members)
- *                       invited_at:
- *                         type: string
- *                         format: date-time
- *                         description: When user was invited (only for invited users)
- *                       invited_by:
- *                         type: string
- *                         description: Who sent the invitation (only for invited users)
- *                 total_count:
- *                   type: number
- *                   description: Total number of participants (members + invited)
  *       403:
  *         description: Access denied - Only room members can view participants
  *       404:
@@ -988,213 +1165,6 @@ router.get("/rooms/:id/participants", verifySupabaseJWT, async (req, res) => {
   await serviceProxy.proxyRequest(
     "core",
     `/rooms/${req.params.id}/participants`,
-    req,
-    res
-  );
-});
-
-/**
- * @swagger
- * /api/rooms/{id}/kick:
- *   post:
- *     summary: Kick a user from a room
- *     description: Remove a user from the room and disconnect their WebSocket connection
- *     tags: [Realtime]
- *     security:
- *       - BearerAuth: []
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *         description: Room ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - userId
- *             properties:
- *               userId:
- *                 type: string
- *                 description: ID of the user to kick
- *                 example: "user123"
- *     responses:
- *       200:
- *         description: User kicked successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                 roomId:
- *                   type: string
- *                 kickedUserId:
- *                   type: string
- *                 kickedBy:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     email:
- *                       type: string
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Internal server error
- */
-router.post("/rooms/:id/kick", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "core",
-    `/rooms/${req.params.id}/kick`,
-    req,
-    res
-  );
-});
-
-/**
- * @swagger
- * /api/rooms/{id}/broadcast:
- *   post:
- *     summary: Broadcast an event to all room participants
- *     description: Send a custom event with data to all users in the room
- *     tags: [Realtime]
- *     security:
- *       - BearerAuth: []
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *         description: Room ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - event
- *             properties:
- *               event:
- *                 type: string
- *                 description: Event name to broadcast
- *                 example: "custom-notification"
- *               data:
- *                 type: object
- *                 description: Event data to send
- *                 example:
- *                   message: "Hello everyone!"
- *     responses:
- *       200:
- *         description: Event broadcast successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                 roomId:
- *                   type: string
- *                 event:
- *                   type: string
- *                 broadcastBy:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     email:
- *                       type: string
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Internal server error
- */
-router.post("/rooms/:id/broadcast", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "core",
-    `/rooms/${req.params.id}/broadcast`,
-    req,
-    res
-  );
-});
-
-/**
- * @swagger
- * /api/rooms/{id}/save:
- *   post:
- *     summary: Save room content
- *     description: Save the current code content for the room and broadcast the save event
- *     tags: [Realtime]
- *     security:
- *       - BearerAuth: []
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *         description: Room ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - content
- *             properties:
- *               content:
- *                 type: string
- *                 description: Code content to save
- *                 example: "console.log('Hello World!');"
- *               language:
- *                 type: string
- *                 description: Programming language
- *                 example: "javascript"
- *     responses:
- *       200:
- *         description: Content saved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                 roomId:
- *                   type: string
- *                 savedBy:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     email:
- *                       type: string
- *                 timestamp:
- *                   type: number
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
- *       500:
- *         description: Internal server error
- */
-router.post("/rooms/:id/save", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "core",
-    `/rooms/${req.params.id}/save`,
     req,
     res
   );
