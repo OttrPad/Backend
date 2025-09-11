@@ -76,6 +76,90 @@ class RealtimeCollaborationService {
     console.log("🔌 Realtime Collaboration Service initialized");
   }
 
+  /**
+   * Fetch room data from core service using room code
+   */
+  private async getRoomByCode(
+    roomCode: string,
+    userId: string,
+    userEmail: string
+  ) {
+    try {
+      const coreServiceUrl =
+        process.env.CORE_SERVICE_URL || "http://localhost:4001";
+
+      // Prepare headers for core service authentication
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-gateway-user-id": userId,
+        "x-gateway-user-email": userEmail,
+        "x-original-url": "/api/rooms/join", // Required by core service
+      };
+
+      // Add shared secret if configured
+      const sharedSecret = process.env.GATEWAY_SHARED_SECRET;
+      if (sharedSecret) {
+        headers["x-gateway-secret"] = sharedSecret;
+      }
+
+      console.log(`Calling core service to resolve room code: ${roomCode}`);
+
+      const response = await fetch(`${coreServiceUrl}/api/rooms/join`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ room_code: roomCode }),
+      });
+
+      if (!response.ok) {
+        // Log more detailed error info
+        let errorText = "";
+        try {
+          errorText = await response.text();
+        } catch (e) {
+          errorText = "Could not read error response";
+        }
+
+        console.error(`Core service error ${response.status}:`, errorText);
+
+        if (response.status === 404) {
+          return null; // Room not found
+        }
+        throw new Error(`Core service error: ${response.status}`);
+      }
+
+      let data;
+      try {
+        console.log(
+          `Response status: ${response.status}, attempting to parse JSON...`
+        );
+        data = await response.json();
+        console.log(
+          `Core service response data:`,
+          JSON.stringify(data, null, 2)
+        );
+      } catch (jsonError) {
+        console.error(`Failed to parse JSON response:`, jsonError);
+        // Get raw text for debugging - but response body might already be consumed
+        try {
+          const responseClone = response.clone();
+          const responseText = await responseClone.text();
+          console.error(`Raw response text:`, responseText);
+        } catch (e) {
+          console.error(`Could not read response text for debugging`);
+        }
+        throw new Error(`Invalid JSON response from core service`);
+      }
+
+      console.log(
+        `Room code ${roomCode} resolved successfully to room ID: ${data.room?.id}`
+      );
+      return data.room;
+    } catch (error) {
+      console.error("Failed to fetch room by code:", error);
+      throw error;
+    }
+  }
+
   private setupSocketHandlers() {
     this.io.use(this.authenticateSocket.bind(this));
 
@@ -183,6 +267,84 @@ class RealtimeCollaborationService {
     }
   }
 
+  private async handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
+    if (!socket.userId || !socket.userEmail) return;
+
+    // If roomId looks like a room code (contains dashes), convert it to room ID
+    let actualRoomId = roomId;
+
+    if (roomId.includes("-")) {
+      console.log(`Converting room code ${roomId} to room ID...`);
+      try {
+        const roomData = await this.getRoomByCode(
+          roomId,
+          socket.userId,
+          socket.userEmail
+        );
+        console.log(`getRoomByCode returned in join:`, roomData);
+        if (!roomData) {
+          console.error(`Room not found for code: ${roomId}`);
+          return;
+        }
+        actualRoomId = roomData.id.toString();
+        console.log(`Room code ${roomId} resolved to room ID: ${actualRoomId}`);
+      } catch (error) {
+        console.error("Room code conversion failed:", error);
+        return;
+      }
+    }
+
+    // Leave the previous room if any
+    this.handleLeaveRoom(socket);
+
+    // Join the new room using the actual room ID
+    socket.roomId = actualRoomId;
+    socket.join(actualRoomId);
+
+    // Notify other users in the room
+    socket.to(actualRoomId).emit("message", {
+      content: `${socket.userEmail} has joined the collaboration room`,
+      timestamp: Date.now(),
+      system: true,
+    });
+
+    // Add user to room participants
+    if (!this.roomParticipants[actualRoomId]) {
+      this.roomParticipants[actualRoomId] = new Map();
+    }
+
+    const userInfo: UserInfo = {
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      socketId: socket.id,
+    };
+
+    this.roomParticipants[actualRoomId].set(socket.userId, userInfo);
+
+    // Notify others in the room about the new user
+    const joinEvent: UserJoinEvent = {
+      roomId: actualRoomId,
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      timestamp: Date.now(),
+    };
+
+    socket.to(actualRoomId).emit("user-joined", joinEvent);
+
+    // Send current participants list to the new user
+    const participants = Array.from(
+      this.roomParticipants[actualRoomId].values()
+    );
+    socket.emit("room-participants", { roomId: actualRoomId, participants });
+
+    // Send chat history to the new user
+    this.sendChatHistory(socket, actualRoomId);
+
+    console.log(
+      `✅ User ${socket.userEmail} joined collaboration room ${actualRoomId}`
+    );
+  }
+
   private async handleChatSend(
     socket: AuthenticatedSocket,
     data: { roomId?: string; message?: string; uid?: string; email?: string },
@@ -223,12 +385,40 @@ class RealtimeCollaborationService {
         return;
       }
 
-      // Ensure sender is in the room
-      if (!socket.rooms.has(roomId)) {
+      // Convert room code to actual room ID if needed
+      let actualRoomId = roomId;
+      if (roomId.includes("-") && socket.userId && socket.userEmail) {
+        console.log(`Converting room code ${roomId} to room ID for chat...`);
+        try {
+          const roomData = await this.getRoomByCode(
+            roomId,
+            socket.userId,
+            socket.userEmail
+          );
+          console.log(`getRoomByCode returned:`, roomData);
+          if (roomData) {
+            actualRoomId = roomData.id.toString();
+            console.log(
+              `Room code ${roomId} resolved to room ID: ${actualRoomId} for chat`
+            );
+          } else {
+            console.log(
+              `getRoomByCode returned null/falsy for room code: ${roomId}`
+            );
+          }
+        } catch (error) {
+          console.error("Room code conversion failed in chat:", error);
+          // Continue with original roomId if conversion fails
+        }
+      }
+
+      // Ensure sender is in the room (using actual room ID)
+      if (!socket.rooms.has(actualRoomId)) {
         const error = "Join the room before sending messages";
         console.warn("[chat:send] sender not in room:", {
           socketId: socket.id,
           roomId,
+          actualRoomId,
           rooms: Array.from(socket.rooms),
         });
         socket.emit("chat:error", { message: error });
@@ -243,76 +433,26 @@ class RealtimeCollaborationService {
         timestamp: Date.now(),
       };
 
-      // Store message in chat history
-      this.addToChatHistory(roomId, chatMessage);
+      // Store message in chat history using actual room ID
+      this.addToChatHistory(actualRoomId, chatMessage);
 
-      const roomSize = this.io.sockets.adapter.rooms.get(roomId)?.size || 0;
+      const roomSize =
+        this.io.sockets.adapter.rooms.get(actualRoomId)?.size || 0;
       console.log("[chat:send] broadcasting to room:", {
         roomId,
+        actualRoomId,
         roomSize,
         from: socket.userEmail,
       });
 
       // Broadcast to all users in the room (including sender for consistency)
-      this.io.to(roomId).emit("message", chatMessage);
+      this.io.to(actualRoomId).emit("message", chatMessage);
       ack?.({ ok: true });
     } catch (err) {
       console.error("[chat:send] error:", err);
       socket.emit("chat:error", { message: "Failed to send message" });
       ack?.({ ok: false, error: "Failed to send message" });
     }
-  }
-
-  private handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
-    if (!socket.userId || !socket.userEmail) return;
-
-    // Leave the previous room if any
-    this.handleLeaveRoom(socket);
-
-    // Join the new room
-    socket.roomId = roomId;
-    socket.join(roomId);
-
-    // Notify other users in the room
-    socket.to(roomId).emit("message", {
-      content: `${socket.userEmail} has joined the collaboration room`,
-      timestamp: Date.now(),
-      system: true,
-    });
-
-    // Add user to room participants
-    if (!this.roomParticipants[roomId]) {
-      this.roomParticipants[roomId] = new Map();
-    }
-
-    const userInfo: UserInfo = {
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      socketId: socket.id,
-    };
-
-    this.roomParticipants[roomId].set(socket.userId, userInfo);
-
-    // Notify others in the room about the new user
-    const joinEvent: UserJoinEvent = {
-      roomId,
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      timestamp: Date.now(),
-    };
-
-    socket.to(roomId).emit("user-joined", joinEvent);
-
-    // Send current participants list to the new user
-    const participants = Array.from(this.roomParticipants[roomId].values());
-    socket.emit("room-participants", { roomId, participants });
-
-    // Send chat history to the new user
-    this.sendChatHistory(socket, roomId);
-
-    console.log(
-      `✅ User ${socket.userEmail} joined collaboration room ${roomId}`
-    );
   }
 
   private handleLeaveRoom(socket: AuthenticatedSocket) {
