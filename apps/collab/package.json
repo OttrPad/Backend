@@ -6,7 +6,10 @@
     "build": "tsc",
     "dev": "dotenv -e ../../.env -- nodemon --watch src --ext ts --exec ts-node src/app.ts",
     "dev:no-watch": "dotenv -e ../../.env -- ts-node src/app.ts",
-    "start": "dotenv -e ../../.env -- node dist/app.js"
+    "start": "dotenv -e ../../.env -- node dist/app.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@google/genai": "^1.19.0",
@@ -25,10 +28,14 @@
   "devDependencies": {
     "@types/cors": "^2.8.13",
     "@types/express": "^4.17.23",
+    "@types/jest": "^29.5.14",
     "@types/node": "^18.19.121",
     "@types/socket.io": "^3.0.2",
     "dotenv-cli": "^10.0.0",
+    "jest": "^29.7.0",
+    "jest-environment-node": "^29.7.0",
     "nodemon": "^3.0.1",
+    "ts-jest": "^29.4.1",
     "ts-node": "^10.9.1",
     "typescript": "^5.8.3"
   }
