@@ -85,7 +85,7 @@ class RealtimeCollaborationService {
       );
 
       // Welcome current user
-      socket.emit("message", { content: "Welcome to the collaboration room!" });
+      // socket.emit("message", { content: "Welcome to the collaboration room!", timestamp: Date.now(), system: true });
 
       // Handle disconnect
       socket.on("disconnect", () => {
@@ -263,6 +263,8 @@ class RealtimeCollaborationService {
     }
   }
 
+  
+
   private handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
     if (!socket.userId || !socket.userEmail) return;
 
@@ -272,9 +274,8 @@ class RealtimeCollaborationService {
     // Join the new room
     socket.roomId = roomId;
     socket.join(roomId);
-<<<<<<< HEAD:apps/core/src/services/realtimeService.ts
-    socket.to(roomId).emit('message', { content: `${socket.userEmail} has joined the room` });
-=======
+
+
 
     // Notify other users in the room
     socket.to(roomId).emit("message", {
@@ -282,7 +283,7 @@ class RealtimeCollaborationService {
       timestamp: Date.now(),
       system: true,
     });
->>>>>>> 464f22310f83b47745be1de336ab98ecadc90dcb:apps/collab/src/services/realtimeCollaborationService.ts
+
 
     // Add user to room participants
     if (!this.roomParticipants[roomId]) {
@@ -319,13 +320,12 @@ class RealtimeCollaborationService {
     );
   }
 
+
+
   private handleLeaveRoom(socket: AuthenticatedSocket) {
     if (!socket.roomId || !socket.userId) return;
 
     const roomId = socket.roomId;
-<<<<<<< HEAD:apps/core/src/services/realtimeService.ts
-    socket.to(roomId).emit('message', { content: `${socket.userEmail} has left the room` });
-=======
 
     // Notify other users
     socket.to(roomId).emit("message", {
@@ -334,7 +334,6 @@ class RealtimeCollaborationService {
       system: true,
     });
 
->>>>>>> 464f22310f83b47745be1de336ab98ecadc90dcb:apps/collab/src/services/realtimeCollaborationService.ts
     socket.leave(roomId);
 
     // Remove user from room participants

@@ -1219,6 +1219,11 @@ router.get("/users/profile", verifySupabaseJWT, async (req, res) => {
   await serviceProxy.proxyRequest("core", "/users/profile", req, res);
 });
 
+// AI chat proxy
+router.post('/ai/chat', verifySupabaseJWT, async (req: Request, res: Response) => {
+  await serviceProxy.proxyRequest('core', '/ai/chat', req, res);
+});
+
 // =============================================================================
 // FUTURE MICROSERVICES
 // Add routes for other services here (AI Engine, etc.)
