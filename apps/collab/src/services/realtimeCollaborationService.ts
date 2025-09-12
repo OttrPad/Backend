@@ -144,9 +144,9 @@ class RealtimeCollaborationService {
       );
 
       // Request chat history when joining a room
-      socket.on("request-chat-history", (data: { roomId: string }) => {
-        this.sendChatHistory(socket, data.roomId);
-      });
+      // socket.on("request-chat-history", (data: { roomId: string }) => {
+      //   this.sendChatHistory(socket, data.roomId);
+      // });
     });
   }
 
@@ -299,18 +299,18 @@ class RealtimeCollaborationService {
     this.roomParticipants[roomId].set(socket.userId, userInfo);
 
     // Notify others in the room about the new user
-    const joinEvent: UserJoinEvent = {
-      roomId,
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      timestamp: Date.now(),
-    };
+    // const joinEvent: UserJoinEvent = {
+    //   roomId,
+    //   userId: socket.userId,
+    //   userEmail: socket.userEmail,
+    //   timestamp: Date.now(),
+    // };
 
-    socket.to(roomId).emit("user-joined", joinEvent);
+    // socket.to(roomId).emit("user-joined", joinEvent);
 
     // Send current participants list to the new user
-    const participants = Array.from(this.roomParticipants[roomId].values());
-    socket.emit("room-participants", { roomId, participants });
+    // const participants = Array.from(this.roomParticipants[roomId].values());
+    // socket.emit("room-participants", { roomId, participants });
 
     // Send chat history to the new user
     this.sendChatHistory(socket, roomId);
@@ -348,12 +348,12 @@ class RealtimeCollaborationService {
     }
 
     // Notify others about user leaving
-    socket.to(roomId).emit("user-left", {
-      roomId,
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      timestamp: Date.now(),
-    });
+    // socket.to(roomId).emit("user-left", {
+    //   roomId,
+    //   userId: socket.userId,
+    //   userEmail: socket.userEmail,
+    //   timestamp: Date.now(),
+    // });
 
     socket.roomId = undefined;
     console.log(
