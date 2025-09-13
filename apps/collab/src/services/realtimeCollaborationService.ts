@@ -19,20 +19,6 @@ interface RoomParticipants {
   [roomId: string]: Map<string, UserInfo>;
 }
 
-interface CodeChangeEvent {
-  roomId: string;
-  userId: string;
-  userEmail: string;
-  content: string;
-  cursorPosition?: { line: number; column: number };
-  timestamp: number;
-  changeId?: string; // For tracking individual changes
-  fileId?: string; // For multi-file support
-  fileName?: string; // Human-readable filename
-  lineNumber?: number; // Specific line being edited
-  changeType?: "edit" | "insert" | "delete"; // Type of change
-}
-
 interface CursorMoveEvent {
   roomId: string;
   userId: string;
@@ -82,20 +68,17 @@ class RealtimeCollaborationService {
   private io: SocketServer;
   private roomParticipants: RoomParticipants = {};
   private chatHistory: { [roomId: string]: ChatMessage[] } = {};
-  private codeHistory: { [roomId: string]: CodeChangeEvent[] } = {}; // Track code changes per room
   private yjsManager: YjsDocumentManager; // Add YJS integration
 
   // Configuration from environment variables
   private readonly maxChatMessageLength: number;
   private readonly chatHistoryLimit: number;
-  private readonly codeHistoryLimit: number;
 
   constructor(httpServer: HttpServer) {
     this.maxChatMessageLength = parseInt(
       process.env.CHAT_MESSAGE_MAX_LENGTH || "5000"
     );
     this.chatHistoryLimit = parseInt(process.env.CHAT_HISTORY_LIMIT || "100");
-    this.codeHistoryLimit = parseInt(process.env.CODE_HISTORY_LIMIT || "50");
 
     // Initialize YJS document manager
     this.yjsManager = new YjsDocumentManager();
@@ -151,19 +134,9 @@ class RealtimeCollaborationService {
         this.handleLeaveRoom(socket);
       });
 
-      // Real-time code collaboration
-      socket.on(
-        "code-change",
-        (data: {
-          content: string;
-          cursorPosition?: { line: number; column: number };
-          changeId?: string;
-          notebookId?: string; // Optional: sync with YJS if provided
-          blockId?: string; // Optional: sync with specific block
-        }) => {
-          this.handleCodeChange(socket, data);
-        }
-      );
+      socket.on("get-room-participants", () => {
+        this.handleGetRoomParticipants(socket);
+      });
 
       socket.on(
         "cursor-move",
@@ -188,6 +161,21 @@ class RealtimeCollaborationService {
         }
       );
 
+      // User presence in blocks
+      socket.on(
+        "user-focus-block",
+        (data: { notebookId: string; blockId: string }) => {
+          this.handleUserFocusBlock(socket, data);
+        }
+      );
+
+      socket.on(
+        "user-blur-block",
+        (data: { notebookId: string; blockId: string }) => {
+          this.handleUserBlurBlock(socket, data);
+        }
+      );
+
       // Additional code collaboration events
       socket.on(
         "typing-start",
@@ -208,7 +196,7 @@ class RealtimeCollaborationService {
         this.handleLanguageChange(socket, data);
       });
 
-      // YJS Document collaboration events
+      // YJS Document collaboration events (for CRDT conflict resolution)
       socket.on(
         "yjs-update",
         (data: { notebookId: string; update: string }) => {
@@ -219,6 +207,19 @@ class RealtimeCollaborationService {
       socket.on("request-yjs-state", (data: { notebookId: string }) => {
         this.handleRequestYjsState(socket, data);
       });
+
+      // Block content updates (PRIMARY method for block-level identification)
+      socket.on(
+        "block-content-changed",
+        (data: {
+          notebookId: string;
+          blockId: string;
+          content: string;
+          isExecuting?: boolean;
+        }) => {
+          this.handleBlockContentChanged(socket, data);
+        }
+      );
 
       // Notebook management events
       socket.on(
@@ -242,6 +243,37 @@ class RealtimeCollaborationService {
         }
       );
 
+      // Socket.IO events for real-time block management
+      socket.on(
+        "block:create",
+        (data: {
+          notebookId: string;
+          type: "code" | "markdown" | "output";
+          position: number;
+          language?: string;
+        }) => {
+          this.handleCreateBlock(socket, data);
+        }
+      );
+
+      socket.on(
+        "block:delete",
+        (data: { notebookId: string; blockId: string }) => {
+          this.handleDeleteBlock(socket, data);
+        }
+      );
+
+      socket.on(
+        "block:move",
+        (data: {
+          notebookId: string;
+          blockId: string;
+          newPosition: number;
+        }) => {
+          this.handleMoveBlock(socket, data);
+        }
+      );
+
       // Request chat history when joining a room
       socket.on("request-chat-history", (data: { roomId: string }) => {
         this.sendChatHistory(socket, data.roomId);
@@ -251,22 +283,44 @@ class RealtimeCollaborationService {
 
   private handleYjsUpdate(
     socket: AuthenticatedSocket,
-    data: { notebookId: string; update: string }
+    data: { notebookId: string; blockId?: string; update: string }
   ) {
-    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
+    if (!socket.roomId || !socket.userId || !socket.userEmail) {
+      socket.emit("error", {
+        message: "Not authenticated or not in a room",
+      });
+      return;
+    }
 
     try {
+      // Validate the update data
+      if (!data.notebookId || !data.update) {
+        socket.emit("error", {
+          message: "Missing notebookId or update data",
+        });
+        return;
+      }
+
       // Apply the update to the YJS document
       const updateBytes = Buffer.from(data.update, "base64");
       this.yjsManager.applyUpdate(data.notebookId, updateBytes);
 
-      // Broadcast the update to other users in the room
-      socket.to(socket.roomId).emit("yjs-update", {
+      // Broadcast the YJS update to other users in the room (exclude sender)
+      // Include blockId if provided for block-level identification
+      const updateEvent: any = {
         notebookId: data.notebookId,
         update: data.update,
         userId: socket.userId,
         userEmail: socket.userEmail,
-      });
+        timestamp: Date.now(),
+      };
+
+      // Include blockId if provided for block-level identification
+      if (data.blockId) {
+        updateEvent.blockId = data.blockId;
+      }
+
+      socket.to(socket.roomId).emit("yjs-update", updateEvent);
 
       console.log(
         `📝 YJS update applied for notebook ${data.notebookId} by ${socket.userEmail}`
@@ -275,6 +329,7 @@ class RealtimeCollaborationService {
       console.error("Error handling YJS update:", error);
       socket.emit("error", {
         message: "Failed to apply document update",
+        details: (error as Error).message,
       });
     }
   }
@@ -305,6 +360,33 @@ class RealtimeCollaborationService {
         message: "Failed to get document state",
       });
     }
+  }
+
+  private handleBlockContentChanged(
+    socket: AuthenticatedSocket,
+    data: {
+      notebookId: string;
+      blockId: string;
+      content: string;
+      isExecuting?: boolean;
+    }
+  ) {
+    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
+
+    // Broadcast the block content change to other users
+    socket.to(socket.roomId).emit("block-content-changed", {
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      notebookId: data.notebookId,
+      blockId: data.blockId,
+      content: data.content,
+      isExecuting: data.isExecuting || false,
+      timestamp: Date.now(),
+    });
+
+    console.log(
+      `📝 Block content changed in ${data.notebookId}:${data.blockId} by ${socket.userEmail}`
+    );
   }
 
   private async handleCreateNotebook(
@@ -576,46 +658,40 @@ class RealtimeCollaborationService {
     // Send chat history to the new user
     this.sendChatHistory(socket, roomId);
 
-    // Send code history to the new user
-    this.sendCodeHistory(socket, roomId);
+    // Send existing notebooks to the new user
+    this.sendNotebookHistory(socket, roomId);
 
     // Ensure default notebook exists for the room
-    this.ensureDefaultNotebook(roomId, socket.userId);
+    this.ensureDefaultNotebook(roomId, socket.userId, socket.userEmail);
 
     console.log(
       `✅ User ${socket.userEmail} joined collaboration room ${roomId}`
     );
   }
 
-  private async ensureDefaultNotebook(roomId: string, userId: string) {
+  private async ensureDefaultNotebook(
+    roomId: string,
+    userId: string,
+    userEmail?: string
+  ) {
     try {
       const notebooks = await this.yjsManager.getNotebooks(roomId);
 
-      // Check if there's already a default notebook (main.py)
-      const hasDefaultNotebook = notebooks.some((nb) => nb.title === "main.py");
-
-      if (!hasDefaultNotebook) {
+      // Only create default notebook if room has NO notebooks at all
+      if (notebooks.length === 0) {
         // Create the default notebook
         const defaultNotebook = await this.yjsManager.createNotebook(
           roomId,
-          "main.py",
+          "Main",
           userId
         );
 
-        // Create a default code block
-        const defaultBlock = this.yjsManager.createBlock(
-          defaultNotebook.id,
-          "code",
-          0,
-          "python"
-        );
-
-        console.log(`📓 Created default notebook "main.py" for room ${roomId}`);
+        console.log(`📓 Created default notebook "Main" for room ${roomId}`);
 
         // Notify all users in the room about the new notebook
         this.io.to(roomId).emit("notebook:created", {
           notebook: defaultNotebook,
-          createdBy: userId,
+          createdBy: userEmail || userId,
           timestamp: Date.now(),
         });
       }
@@ -646,7 +722,6 @@ class RealtimeCollaborationService {
       if (this.roomParticipants[roomId].size === 0) {
         delete this.roomParticipants[roomId];
         delete this.chatHistory[roomId]; // Also clean up chat history
-        delete this.codeHistory[roomId]; // Also clean up code history
       }
     }
 
@@ -661,66 +736,6 @@ class RealtimeCollaborationService {
     socket.roomId = undefined;
     console.log(
       `✅ User ${socket.userEmail} left collaboration room ${roomId}`
-    );
-  }
-
-  private handleCodeChange(
-    socket: AuthenticatedSocket,
-    data: {
-      content: string;
-      cursorPosition?: { line: number; column: number };
-      changeId?: string;
-      notebookId?: string; // Optional: sync with YJS if provided
-      blockId?: string; // Optional: sync with specific block
-    }
-  ) {
-    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
-
-    const changeEvent: CodeChangeEvent = {
-      roomId: socket.roomId,
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      content: data.content,
-      cursorPosition: data.cursorPosition,
-      changeId:
-        data.changeId ||
-        `change_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: Date.now(),
-      fileId: data.notebookId || "main", // Use notebookId as fileId if provided
-      fileName: data.notebookId ? `${data.notebookId}.ipynb` : "main.js",
-      lineNumber: data.cursorPosition?.line || 0,
-      changeType: "edit", // Default change type
-    };
-
-    // If notebookId and blockId are provided, sync with YJS document
-    if (data.notebookId && data.blockId) {
-      try {
-        const ytext = this.yjsManager.getBlockText(
-          data.notebookId,
-          data.blockId
-        );
-        if (ytext) {
-          // Update the YJS text content
-          ytext.delete(0, ytext.length);
-          ytext.insert(0, data.content);
-
-          console.log(
-            `🔄 Synced code change with YJS notebook ${data.notebookId}, block ${data.blockId}`
-          );
-        }
-      } catch (error) {
-        console.error("Error syncing code change with YJS:", error);
-      }
-    }
-
-    // Broadcast to all other users in the room
-    socket.to(socket.roomId).emit("code-changed", changeEvent);
-
-    // Store the change in history
-    this.addToCodeHistory(socket.roomId, changeEvent);
-
-    console.log(
-      `📝 Code change by ${socket.userEmail} in room ${socket.roomId}`
     );
   }
 
@@ -801,34 +816,39 @@ class RealtimeCollaborationService {
     }
   }
 
-  private addToCodeHistory(roomId: string, changeEvent: CodeChangeEvent) {
-    if (!this.codeHistory[roomId]) {
-      this.codeHistory[roomId] = [];
-    }
-
-    this.codeHistory[roomId].push(changeEvent);
-
-    // Keep only the most recent code changes
-    if (this.codeHistory[roomId].length > this.codeHistoryLimit) {
-      this.codeHistory[roomId] = this.codeHistory[roomId].slice(
-        -this.codeHistoryLimit
-      );
-    }
-  }
-
   private sendChatHistory(socket: AuthenticatedSocket, roomId: string) {
     const history = this.chatHistory[roomId] || [];
     socket.emit("chat-history", { roomId, messages: history });
   }
 
-  private sendCodeHistory(socket: AuthenticatedSocket, roomId: string) {
-    const history = this.codeHistory[roomId] || [];
-    socket.emit("code-history", { roomId, changes: history });
+  private async sendNotebookHistory(
+    socket: AuthenticatedSocket,
+    roomId: string
+  ) {
+    try {
+      const notebooks = await this.yjsManager.getNotebooks(roomId);
+      socket.emit("notebook-history", { roomId, notebooks });
+    } catch (error) {
+      console.error("Error sending notebook history:", error);
+    }
   }
 
   // Public methods for external access
   public getRoomParticipants(roomId: string): UserInfo[] {
     return Array.from(this.roomParticipants[roomId]?.values() || []);
+  }
+
+  private handleGetRoomParticipants(socket: AuthenticatedSocket) {
+    if (!socket.roomId) {
+      socket.emit("error", { message: "Not in a room" });
+      return;
+    }
+
+    const participants = this.getRoomParticipants(socket.roomId);
+    socket.emit("room-participants", {
+      roomId: socket.roomId,
+      participants,
+    });
   }
 
   private handleTypingStart(
@@ -878,27 +898,147 @@ class RealtimeCollaborationService {
     });
   }
 
+  private handleUserFocusBlock(
+    socket: AuthenticatedSocket,
+    data: { notebookId: string; blockId: string }
+  ) {
+    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
+
+    // Broadcast to other users that this user is now active in this block
+    socket.to(socket.roomId).emit("user-focus-block", {
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      notebookId: data.notebookId,
+      blockId: data.blockId,
+      timestamp: Date.now(),
+    });
+
+    console.log(
+      `👁️ User ${socket.userEmail} focused on block ${data.blockId} in notebook ${data.notebookId}`
+    );
+  }
+
+  private handleUserBlurBlock(
+    socket: AuthenticatedSocket,
+    data: { notebookId: string; blockId: string }
+  ) {
+    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
+
+    // Broadcast to other users that this user is no longer active in this block
+    socket.to(socket.roomId).emit("user-blur-block", {
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      notebookId: data.notebookId,
+      blockId: data.blockId,
+      timestamp: Date.now(),
+    });
+
+    console.log(
+      `👁️ User ${socket.userEmail} blurred from block ${data.blockId} in notebook ${data.notebookId}`
+    );
+  }
+
   public broadcastToRoom(roomId: string, event: string, data: any) {
     this.io.to(roomId).emit(event, data);
   }
 
-  public getRoomCodeHistory(roomId: string): CodeChangeEvent[] {
-    return this.codeHistory[roomId] || [];
+  public async broadcastBlockCreated(
+    notebookId: string,
+    block: any,
+    createdBy?: string
+  ) {
+    // Find which room this notebook belongs to
+    const notebook = await this.yjsManager.findNotebook(notebookId);
+    if (notebook) {
+      this.io.to(notebook.roomId).emit("block:created", {
+        notebookId,
+        block,
+        createdBy: createdBy || "Unknown",
+        timestamp: Date.now(),
+      });
+      console.log(
+        `📦 Block ${block.type} created in notebook ${notebookId} via REST API`
+      );
+    } else {
+      console.warn(
+        `⚠️ Could not find room for notebook ${notebookId} to broadcast block creation`
+      );
+    }
+  }
+
+  public async broadcastBlockDeleted(
+    notebookId: string,
+    blockId: string,
+    deletedBy?: string
+  ) {
+    const notebook = await this.yjsManager.findNotebook(notebookId);
+    if (notebook) {
+      this.io.to(notebook.roomId).emit("block:deleted", {
+        notebookId,
+        blockId,
+        deletedBy: deletedBy || "Unknown",
+        timestamp: Date.now(),
+      });
+      console.log(
+        `🗑️ Block ${blockId} deleted from notebook ${notebookId} via REST API`
+      );
+    } else {
+      console.warn(
+        `⚠️ Could not find room for notebook ${notebookId} to broadcast block deletion`
+      );
+    }
+  }
+
+  public async broadcastBlockMoved(
+    notebookId: string,
+    blockId: string,
+    newPosition: number,
+    movedBy?: string
+  ) {
+    const notebook = await this.yjsManager.findNotebook(notebookId);
+    if (notebook) {
+      this.io.to(notebook.roomId).emit("block:moved", {
+        notebookId,
+        blockId,
+        newPosition,
+        movedBy: movedBy || "Unknown",
+        timestamp: Date.now(),
+      });
+      console.log(
+        `📦 Block ${blockId} moved to position ${newPosition} in notebook ${notebookId} via REST API`
+      );
+    } else {
+      console.warn(
+        `⚠️ Could not find room for notebook ${notebookId} to broadcast block move`
+      );
+    }
+  }
+
+  private findRoomForNotebook(notebookId: string): string | null {
+    // Get all notebooks from YJS manager to find the room
+    for (const [roomId, participants] of Object.entries(
+      this.roomParticipants
+    )) {
+      // Check if this room has the notebook (we'll need to query YJS manager)
+      try {
+        const room = this.yjsManager.getRoom(roomId);
+        if (room && room.notebooks.has(notebookId)) {
+          return roomId;
+        }
+      } catch (error) {
+        // Continue checking other rooms
+      }
+    }
+    return null;
   }
 
   public getRoomChatHistory(roomId: string): ChatMessage[] {
     return this.chatHistory[roomId] || [];
   }
 
-  public clearRoomHistory(
-    roomId: string,
-    type: "chat" | "code" | "all" = "all"
-  ) {
+  public clearRoomHistory(roomId: string, type: "chat" | "all" = "all") {
     if (type === "chat" || type === "all") {
       delete this.chatHistory[roomId];
-    }
-    if (type === "code" || type === "all") {
-      delete this.codeHistory[roomId];
     }
   }
 
@@ -918,8 +1058,133 @@ class RealtimeCollaborationService {
     }
   }
 
+  private async handleCreateBlock(
+    socket: AuthenticatedSocket,
+    data: {
+      notebookId: string;
+      type: "code" | "markdown" | "output";
+      position: number;
+      language?: string;
+    }
+  ) {
+    if (!socket.userId || !socket.userEmail || !socket.roomId) return;
+
+    try {
+      const block = this.yjsManager.createBlock(
+        data.notebookId,
+        data.type,
+        data.position,
+        data.language
+      );
+
+      // Broadcast the new block to all users in the room
+      this.io.to(socket.roomId).emit("block:created", {
+        notebookId: data.notebookId,
+        block,
+        createdBy: socket.userEmail,
+        timestamp: Date.now(),
+      });
+
+      console.log(
+        `📦 Block ${data.type} created in notebook ${data.notebookId} by ${socket.userEmail}`
+      );
+    } catch (error) {
+      console.error("Error creating block:", error);
+      socket.emit("error", {
+        message: "Failed to create block",
+      });
+    }
+  }
+
+  private handleDeleteBlock(
+    socket: AuthenticatedSocket,
+    data: { notebookId: string; blockId: string }
+  ) {
+    if (!socket.userId || !socket.userEmail || !socket.roomId) return;
+
+    try {
+      const success = this.yjsManager.deleteBlock(
+        data.notebookId,
+        data.blockId
+      );
+
+      if (success) {
+        // Broadcast the block deletion to all users in the room
+        this.io.to(socket.roomId).emit("block:deleted", {
+          notebookId: data.notebookId,
+          blockId: data.blockId,
+          deletedBy: socket.userEmail,
+          timestamp: Date.now(),
+        });
+
+        console.log(
+          `🗑️ Block ${data.blockId} deleted from notebook ${data.notebookId} by ${socket.userEmail}`
+        );
+      } else {
+        socket.emit("error", {
+          message: "Block not found",
+        });
+      }
+    } catch (error) {
+      console.error("Error deleting block:", error);
+      socket.emit("error", {
+        message: "Failed to delete block",
+      });
+    }
+  }
+
+  private handleMoveBlock(
+    socket: AuthenticatedSocket,
+    data: { notebookId: string; blockId: string; newPosition: number }
+  ) {
+    if (!socket.userId || !socket.userEmail || !socket.roomId) return;
+
+    try {
+      const success = this.yjsManager.moveBlock(
+        data.notebookId,
+        data.blockId,
+        data.newPosition
+      );
+
+      if (success) {
+        // Broadcast the block move to all users in the room
+        this.io.to(socket.roomId).emit("block:moved", {
+          notebookId: data.notebookId,
+          blockId: data.blockId,
+          newPosition: data.newPosition,
+          movedBy: socket.userEmail,
+          timestamp: Date.now(),
+        });
+
+        console.log(
+          `📦 Block ${data.blockId} moved to position ${data.newPosition} in notebook ${data.notebookId} by ${socket.userEmail}`
+        );
+      } else {
+        socket.emit("error", {
+          message: "Block not found",
+        });
+      }
+    } catch (error) {
+      console.error("Error moving block:", error);
+      socket.emit("error", {
+        message: "Failed to move block",
+      });
+    }
+  }
+
   public getYjsManager(): YjsDocumentManager {
     return this.yjsManager;
+  }
+
+  /**
+   * Close the socket.io server and cleanup resources
+   */
+  public close(): Promise<void> {
+    return new Promise((resolve) => {
+      this.io.close(() => {
+        resolve();
+      });
+    });
   }
 }
 

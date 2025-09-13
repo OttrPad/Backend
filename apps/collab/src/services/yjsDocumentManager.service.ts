@@ -77,6 +77,9 @@ export class YjsDocumentManager {
     // Add to room
     this.addNotebookToRoom(roomId, notebookId);
 
+    // Create a default code block
+    this.createBlock(notebookId, "code", 0, "python");
+
     return notebook;
   }
 
@@ -301,6 +304,20 @@ export class YjsDocumentManager {
    */
   getRoom(roomId: string): CollaborationRoom | null {
     return this.rooms.get(roomId) || null;
+  }
+
+  /**
+   * Find a notebook by ID and return it with its room information
+   */
+  async findNotebook(notebookId: string): Promise<NotebookDocument | null> {
+    // Search through all rooms to find the notebook
+    for (const [roomId, notebooks] of this.inMemoryNotebooks.entries()) {
+      const notebook = notebooks.find((nb) => nb.id === notebookId);
+      if (notebook) {
+        return notebook;
+      }
+    }
+    return null;
   }
 
   /**

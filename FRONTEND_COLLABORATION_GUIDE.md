@@ -1,125 +1,45 @@
-# Real-time Code Collaboration API Guide
+# Real-time Collaboration API Reference
 
-This guide covers the **real-time code collaboration features** for implementing collaborative notebooks and live code editing.
+Quick API reference for implementing real-time collaborative features.
 
-_Note: Chat functionality, authentication, and basic Socket.IO connection are already implemented._
-
-## 🎯 Overview
-
-The collaboration service provides:
-
-- **Multiple notebooks per room** with independent Y.Doc instances
-- **Block-level collaboration** within notebooks (code, markdown, output blocks)
-- **Real-time cursor tracking** down to specific blocks and lines
-- **Live code synchronization** with conflict-free editing via YJS
-- **Typing indicators** and **text selection sharing**
-
-## 🌐 API Endpoints & Configuration
-
-### Base URLs
+## 🌐 Configuration
 
 ```javascript
-// For REST API calls
+// Base URLs
 const API_BASE_URL = "http://localhost:4000";
-
-// For Socket.IO connection
 const SOCKET_IO_URL = "http://localhost:5002";
-```
 
-### Frontend Environment Variables
-
-```bash
-# Development
-NEXT_PUBLIC_API_URL=http://localhost:4000
-NEXT_PUBLIC_SOCKET_URL=http://localhost:5002
-
-# Production
-NEXT_PUBLIC_API_URL=https://api.yourapp.com
-NEXT_PUBLIC_SOCKET_URL=https://collab.yourapp.com
-```
-
-### Socket.IO Connection Setup
-
-```javascript
-import { io } from "socket.io-client";
-
+// Socket.IO Connection
 const socket = io("http://localhost:5002", {
-  auth: {
-    token: "your-jwt-token",
-  },
+  auth: { token: "your-jwt-token" },
   transports: ["websocket", "polling"],
 });
 
-// Connection status
-socket.on("connect", () => {
-  console.log("Connected to collaboration service:", socket.id);
-});
-
-socket.on("disconnect", () => {
-  console.log("Disconnected from collaboration service");
-});
-```
-
-### Health Checks & API Documentation
-
-```bash
-# API health check
-GET http://localhost:4000/health
-
-# API Documentation (Swagger)
-GET http://localhost:4000/api-docs
-```
-
-### Development vs Production
-
-```javascript
-// Development configuration
-const config = {
-  apiBaseUrl: "http://localhost:4000",
-  socketUrl: "http://localhost:5002",
-};
-
-// Production configuration
-const config = {
-  apiBaseUrl: process.env.NEXT_PUBLIC_API_URL,
-  socketUrl: process.env.NEXT_PUBLIC_SOCKET_URL,
-};
-```
-
-### Authentication
-
-All REST API endpoints require JWT authentication:
-
-```javascript
-// Add JWT token to all requests
+// Authentication Headers
 const headers = {
   Authorization: `Bearer ${yourJwtToken}`,
   "Content-Type": "application/json",
 };
-
-// For Socket.IO authentication
-const socket = io("http://localhost:5002", {
-  auth: {
-    token: yourJwtToken,
-  },
-});
 ```
 
-## 📡 Prerequisites
+## 📓 REST API Endpoints
 
-Assuming you already have:
+### Notebook Management
 
-- ✅ Socket.IO connection established
-- ✅ User authenticated with JWT
-- ✅ Joined a collaboration room
-- ✅ Chat functionality working
+#### List Notebooks
 
-## 📓 Notebook Management
+**Purpose:** Retrieves all notebooks within a specific collaboration room. Used to populate the notebook sidebar and show available notebooks to users.
 
-### List Notebooks in a Room
+**Expected Input:**
+
+- `roomId` (path parameter) - The room ID where notebooks are stored
+- JWT token in Authorization header
+
+**Returns:** Array of notebook objects with metadata including creation time, last update, and ownership information.
 
 ```http
-GET http://localhost:4000/api/collaboration/rooms/{roomId}/notebooks
+GET /api/collaboration/rooms/{roomId}/notebooks
+Authorization: Bearer {token}
 ```
 
 **Response:**
@@ -140,11 +60,21 @@ GET http://localhost:4000/api/collaboration/rooms/{roomId}/notebooks
 }
 ```
 
-### Create a New Notebook
+#### Create Notebook
+
+**Purpose:** Creates a new notebook within a room. Automatically sets the current user as the creator and initializes an empty YJS document for real-time collaboration.
+
+**Expected Input:**
+
+- `roomId` (path parameter) - The room where the notebook will be created
+- `title` (body) - The display name for the notebook
+- JWT token for user identification and authorization
+
+**Returns:** Complete notebook object with generated ID and metadata. Also broadcasts `notebook:created` event to all room participants.
 
 ```http
-POST http://localhost:4000/api/collaboration/rooms/{roomId}/notebooks
-Authorization: Bearer your-jwt-token
+POST /api/collaboration/rooms/{roomId}/notebooks
+Authorization: Bearer {token}
 Content-Type: application/json
 
 {
@@ -168,11 +98,21 @@ Content-Type: application/json
 }
 ```
 
-### Update/Rename a Notebook
+#### Update Notebook
+
+**Purpose:** Renames an existing notebook. Only the creator or users with edit permissions can update notebooks.
+
+**Expected Input:**
+
+- `notebookId` (path parameter) - The notebook to update
+- `title` (body) - New display name for the notebook
+- JWT token for authorization
+
+**Returns:** Updated notebook object with new title and updated timestamp. Also broadcasts `notebook:updated` event to all room participants.
 
 ```http
-PUT http://localhost:4000/api/collaboration/notebooks/{notebookId}
-Authorization: Bearer your-jwt-token
+PUT /api/collaboration/notebooks/{notebookId}
+Authorization: Bearer {token}
 Content-Type: application/json
 
 {
@@ -196,11 +136,20 @@ Content-Type: application/json
 }
 ```
 
-### Delete a Notebook
+#### Delete Notebook
+
+**Purpose:** Permanently removes a notebook and all its blocks. Only the creator or room admin can delete notebooks. This action cannot be undone.
+
+**Expected Input:**
+
+- `notebookId` (path parameter) - The notebook to delete
+- JWT token for authorization
+
+**Returns:** Confirmation message with the deleted notebook ID. Also broadcasts `notebook:deleted` event to all room participants and cleans up YJS documents.
 
 ```http
-DELETE http://localhost:4000/api/collaboration/notebooks/{notebookId}
-Authorization: Bearer your-jwt-token
+DELETE /api/collaboration/notebooks/{notebookId}
+Authorization: Bearer {token}
 ```
 
 **Response:**
@@ -215,52 +164,21 @@ Authorization: Bearer your-jwt-token
 }
 ```
 
-### Real-time Notebook Events
+### Block Management
 
-```javascript
-// Listen for new notebooks created by others
-socket.on("notebook:created", (data) => {
-  console.log("New notebook created:", data.notebook);
-  console.log("Created by:", data.createdBy);
-});
+#### Get Blocks
 
-// Listen for notebook updates (renames)
-socket.on("notebook:updated", (data) => {
-  console.log("Notebook updated:", data.notebook);
-  console.log("Updated by:", data.updatedBy);
-});
+**Purpose:** Retrieves all blocks within a notebook in sequential order. Used to render the notebook interface and establish the current block structure for collaboration.
 
-// Listen for notebook deletions
-socket.on("notebook:deleted", (data) => {
-  console.log("Notebook deleted:", data.notebookId);
-  console.log("Deleted by:", data.deletedBy);
-});
+**Expected Input:**
 
-// Create notebook via Socket.IO (alternative to REST)
-socket.emit("notebook:create", {
-  roomId: "room123",
-  title: "My Socket Notebook",
-});
+- `notebookId` (path parameter) - The notebook containing the blocks
+- No authentication required for reading
 
-// Update notebook via Socket.IO (alternative to REST)
-socket.emit("notebook:update", {
-  notebookId: "notebook_123_abc",
-  title: "Renamed via Socket",
-});
-
-// Delete notebook via Socket.IO
-socket.emit("notebook:delete", {
-  roomId: "room123",
-  notebookId: "notebook_123_abc",
-});
-```
-
-## 🧱 Block Management
-
-### Get Blocks in a Notebook
+**Returns:** Array of block objects ordered by position, including type, language, and metadata.
 
 ```http
-GET http://localhost:4000/api/collaboration/notebooks/{notebookId}/blocks
+GET /api/collaboration/notebooks/{notebookId}/blocks
 ```
 
 **Response:**
@@ -288,11 +206,23 @@ GET http://localhost:4000/api/collaboration/notebooks/{notebookId}/blocks
 }
 ```
 
-### Create a New Block
+#### Create Block
+
+**Purpose:** Adds a new block to a notebook at the specified position. Creates YJS text binding for real-time collaborative editing of the block content.
+
+**Expected Input:**
+
+- `notebookId` (path parameter) - The notebook to add the block to
+- `type` (body) - Block type: "code", "markdown", or "output"
+- `position` (body) - Position index within the notebook
+- `language` (body, optional) - Programming language for code blocks
+- JWT token for authorization
+
+**Returns:** Complete block object with generated ID. Also broadcasts `block:created` event to all room participants.
 
 ```http
-POST http://localhost:4000/api/collaboration/notebooks/{notebookId}/blocks
-Authorization: Bearer your-jwt-token
+POST /api/collaboration/notebooks/{notebookId}/blocks
+Authorization: Bearer {token}
 Content-Type: application/json
 
 {
@@ -301,12 +231,6 @@ Content-Type: application/json
   "language": "python"
 }
 ```
-
-**Block Types:**
-
-- `"code"` - Code cell (requires `language` field)
-- `"markdown"` - Markdown cell
-- `"output"` - Output cell
 
 **Response:**
 
@@ -324,18 +248,48 @@ Content-Type: application/json
 }
 ```
 
-### Delete a Block
+#### Delete Block
+
+**Purpose:** Permanently removes a block from the notebook. Cleans up YJS bindings and adjusts positions of subsequent blocks automatically.
+
+**Expected Input:**
+
+- `notebookId` (path parameter) - The notebook containing the block
+- `blockId` (path parameter) - The block to delete
+- JWT token for authorization
+
+**Returns:** Success confirmation. Also broadcasts `block:deleted` event to all room participants.
 
 ```http
-DELETE http://localhost:4000/api/collaboration/notebooks/{notebookId}/blocks/{blockId}
-Authorization: Bearer your-jwt-token
+DELETE /api/collaboration/notebooks/{notebookId}/blocks/{blockId}
+Authorization: Bearer {token}
 ```
 
-### Move a Block
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Block deleted successfully"
+}
+```
+
+#### Move Block
+
+**Purpose:** Changes the position of a block within the notebook. Automatically adjusts positions of other blocks to maintain sequential order. Used for drag-and-drop reordering.
+
+**Expected Input:**
+
+- `notebookId` (path parameter) - The notebook containing the block
+- `blockId` (path parameter) - The block to move
+- `position` (body) - New position index
+- JWT token for authorization
+
+**Returns:** Updated block information. Also broadcasts `block:moved` event to all room participants.
 
 ```http
-PUT http://localhost:4000/api/collaboration/notebooks/{notebookId}/blocks/{blockId}/position
-Authorization: Bearer your-jwt-token
+PUT /api/collaboration/notebooks/{notebookId}/blocks/{blockId}/position
+Authorization: Bearer {token}
 Content-Type: application/json
 
 {
@@ -343,10 +297,29 @@ Content-Type: application/json
 }
 ```
 
-### Get Block Content
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Block moved successfully"
+}
+```
+
+#### Get Block Content
+
+**Purpose:** Retrieves the current text content of a block. Used for initial loading and non-real-time access to block content.
+
+**Expected Input:**
+
+- `notebookId` (path parameter) - The notebook containing the block
+- `blockId` (path parameter) - The block to get content from
+- No authentication required for reading
+
+**Returns:** Current text content of the block.
 
 ```http
-GET http://localhost:4000/api/collaboration/notebooks/{notebookId}/blocks/{blockId}/content
+GET /api/collaboration/notebooks/{notebookId}/blocks/{blockId}/content
 ```
 
 **Response:**
@@ -360,224 +333,21 @@ GET http://localhost:4000/api/collaboration/notebooks/{notebookId}/blocks/{block
 }
 ```
 
-## ⌨️ Real-time Code Collaboration
+### YJS Document State
 
-### Send Code Changes
+#### Get Document State
 
-```javascript
-// Basic code change
-socket.emit("code-change", {
-  content: 'print("Hello World")',
-  cursorPosition: { line: 0, column: 20 },
-  changeId: "change_123", // optional
-});
+**Purpose:** Retrieves the complete YJS document state for a notebook. Used when a client needs to synchronize with the current state of all blocks in the notebook.
 
-// Code change in specific notebook block
-socket.emit("code-change", {
-  content: 'import pandas as pd\ndf = pd.read_csv("data.csv")',
-  cursorPosition: { line: 1, column: 25 },
-  notebookId: "notebook_123_abc",
-  blockId: "block_789_xyz",
-  changeId: "change_456",
-});
-```
+**Expected Input:**
 
-### Receive Code Changes
+- `notebookId` (path parameter) - The notebook to get state for
+- No authentication required for reading
 
-```javascript
-socket.on("code-changed", (data) => {
-  console.log("Code changed by:", data.userEmail);
-  console.log("New content:", data.content);
-  console.log("Cursor at:", data.cursorPosition);
-  console.log("In notebook:", data.fileId); // notebookId if provided
-  console.log("Change ID:", data.changeId);
-  console.log("Timestamp:", data.timestamp);
-});
-```
-
-## 🖱️ Cursor and Selection Tracking
-
-### Send Cursor Movement
-
-```javascript
-// Basic cursor movement
-socket.emit("cursor-move", {
-  position: { line: 5, column: 12 },
-});
-
-// Cursor movement in specific block
-socket.emit("cursor-move", {
-  position: { line: 5, column: 12 },
-  notebookId: "notebook_123_abc",
-  blockId: "block_789_xyz",
-});
-```
-
-### Receive Cursor Updates
-
-```javascript
-socket.on("cursor-moved", (data) => {
-  console.log("User cursor moved:", data.userEmail);
-  console.log("Position:", data.position);
-  console.log("In notebook:", data.notebookId);
-  console.log("In block:", data.blockId);
-
-  // Update cursor visualization in your editor
-  showUserCursor(data.userId, data.position, data.notebookId, data.blockId);
-});
-```
-
-### Send Text Selection
-
-```javascript
-socket.emit("selection-change", {
-  startPos: { line: 2, column: 0 },
-  endPos: { line: 4, column: 15 },
-  notebookId: "notebook_123_abc",
-  blockId: "block_789_xyz",
-});
-```
-
-### Receive Selection Updates
-
-```javascript
-socket.on("selection-changed", (data) => {
-  console.log("User selected text:", data.userEmail);
-  console.log("Selection:", data.startPos, "to", data.endPos);
-
-  // Highlight selected text in your editor
-  showUserSelection(
-    data.userId,
-    data.startPos,
-    data.endPos,
-    data.notebookId,
-    data.blockId
-  );
-});
-```
-
-## ⌨️ Typing Indicators
-
-### Send Typing Status
-
-```javascript
-// User started typing
-socket.emit("typing-start", {
-  position: { line: 3, column: 8 },
-  notebookId: "notebook_123_abc",
-  blockId: "block_789_xyz",
-});
-
-// User stopped typing
-socket.emit("typing-stop");
-```
-
-### Receive Typing Updates
-
-```javascript
-socket.on("typing-start", (data) => {
-  console.log(data.userEmail + " is typing at:", data.position);
-  showTypingIndicator(
-    data.userId,
-    data.position,
-    data.notebookId,
-    data.blockId
-  );
-});
-
-socket.on("typing-stop", (data) => {
-  console.log(data.userEmail + " stopped typing");
-  hideTypingIndicator(data.userId);
-});
-```
-
-## 🎨 Language Synchronization
-
-### Send Language Changes
-
-```javascript
-socket.emit("language-change", {
-  language: "python",
-});
-```
-
-### Receive Language Updates
-
-```javascript
-socket.on("language-change", (data) => {
-  console.log("Language changed to:", data.language);
-  console.log("Changed by:", data.userEmail);
-
-  // Update syntax highlighting
-  updateEditorLanguage(data.language);
-});
-```
-
-## 🔄 YJS Document Synchronization
-
-For advanced conflict-free collaborative editing using YJS:
-
-### Send YJS Updates
-
-```javascript
-// When your YJS document changes
-ydoc.on("update", (update) => {
-  const updateBase64 = btoa(String.fromCharCode(...update));
-  socket.emit("yjs-update", {
-    notebookId: "notebook_123_abc",
-    update: updateBase64,
-  });
-});
-```
-
-### Receive YJS Updates
-
-```javascript
-socket.on("yjs-update", (data) => {
-  if (data.notebookId === currentNotebookId) {
-    const update = Uint8Array.from(atob(data.update), (c) => c.charCodeAt(0));
-    Y.applyUpdate(ydoc, update);
-  }
-});
-```
-
-### Request Document State
-
-```javascript
-// Request current state when joining
-socket.emit("request-yjs-state", {
-  notebookId: "notebook_123_abc",
-});
-
-socket.on("yjs-state", (data) => {
-  const state = Uint8Array.from(atob(data.state), (c) => c.charCodeAt(0));
-  Y.applyUpdate(ydoc, state);
-});
-```
-
-## 👥 User Presence in Code Blocks
-
-Since users are already tracked in the room, you can now track their presence in specific notebooks and blocks:
-
-```javascript
-// Track when users enter/leave specific notebooks or blocks
-socket.on("cursor-moved", (data) => {
-  // Update user presence in specific blocks
-  updateUserPresenceInBlock(data.userId, data.notebookId, data.blockId);
-});
-
-socket.on("typing-start", (data) => {
-  // Show user is actively editing a specific block
-  showUserTypingInBlock(data.userId, data.notebookId, data.blockId);
-});
-```
-
-## 🔧 Document State Management
-
-### Get YJS Document State
+**Returns:** Base64-encoded YJS document state containing all block content and metadata.
 
 ```http
-GET http://localhost:4000/api/collaboration/notebooks/{notebookId}/state
+GET /api/collaboration/notebooks/{notebookId}/state
 ```
 
 **Response:**
@@ -591,10 +361,19 @@ GET http://localhost:4000/api/collaboration/notebooks/{notebookId}/state
 }
 ```
 
-### Load Document
+#### Load Document
+
+**Purpose:** Initializes or loads a YJS document for a notebook in the server's memory. Must be called before starting real-time collaboration on a notebook.
+
+**Expected Input:**
+
+- `notebookId` (path parameter) - The notebook to load
+- No authentication required
+
+**Returns:** Confirmation that the document is ready for real-time collaboration.
 
 ```http
-POST http://localhost:4000/api/collaboration/notebooks/{notebookId}/load
+POST /api/collaboration/notebooks/{notebookId}/load
 ```
 
 **Response:**
@@ -609,20 +388,553 @@ POST http://localhost:4000/api/collaboration/notebooks/{notebookId}/load
 }
 ```
 
-## 🚨 Error Handling
+## 📡 Socket.IO Events
 
-### Code Collaboration Errors
+### Outgoing Events (Client → Server)
+
+#### Join Room
+
+**Purpose:** Connects the client to a specific collaboration room. Must be called after socket connection to start receiving room events.
+
+**Expected Data:**
+
+- `roomId` - The room to join
 
 ```javascript
-socket.on("error", (error) => {
-  console.error("Collaboration error:", error.message);
-  // Handle YJS sync errors, document access, etc.
+socket.emit("join-room", {
+  roomId: "room123",
 });
 ```
 
-### REST API Errors
+#### Code Changes
 
-All REST endpoints return errors in this format:
+**Purpose:** Broadcasts code content changes to all participants. Used for non-YJS collaborative editing and visual feedback.
+
+**Expected Data:**
+
+- `content` - The updated code content
+- `cursorPosition` - Current cursor position
+- `notebookId` - Target notebook ID
+- `blockId` - Target block ID
+- `changeId` - Unique change identifier
+
+```javascript
+socket.emit("code-change", {
+  content: 'print("Hello World")',
+  cursorPosition: { line: 0, column: 20 },
+  notebookId: "notebook_123_abc",
+  blockId: "block_789_xyz",
+  changeId: "change_123",
+});
+```
+
+#### Cursor Movement
+
+**Purpose:** Shares cursor position with other users for real-time collaboration awareness. Shows where each user is currently editing.
+
+**Expected Data:**
+
+- `position` - Cursor line and column
+- `notebookId` - Current notebook
+- `blockId` - Current block
+
+```javascript
+socket.emit("cursor-move", {
+  position: { line: 5, column: 12 },
+  notebookId: "notebook_123_abc",
+  blockId: "block_789_xyz",
+});
+```
+
+#### Text Selection
+
+**Purpose:** Shares text selection ranges with other users. Displays what text other users have highlighted.
+
+**Expected Data:**
+
+- `startPos` - Selection start position
+- `endPos` - Selection end position
+- `notebookId` - Current notebook
+- `blockId` - Current block
+
+```javascript
+socket.emit("selection-change", {
+  startPos: { line: 2, column: 0 },
+  endPos: { line: 4, column: 15 },
+  notebookId: "notebook_123_abc",
+  blockId: "block_789_xyz",
+});
+```
+
+#### Typing Status
+
+**Purpose:** Shows typing indicators to other users. Automatically times out to avoid stuck indicators.
+
+**Expected Data for Start:**
+
+- `position` - Where the user is typing
+- `notebookId` - Current notebook
+- `blockId` - Current block
+
+**Expected Data for Stop:**
+
+- No data required
+
+```javascript
+// Start typing
+socket.emit("typing-start", {
+  position: { line: 3, column: 8 },
+  notebookId: "notebook_123_abc",
+  blockId: "block_789_xyz",
+});
+
+// Stop typing
+socket.emit("typing-stop");
+```
+
+#### Language Change
+
+**Purpose:** Notifies other users when a block's programming language is changed. Updates syntax highlighting across all clients.
+
+**Expected Data:**
+
+- `language` - The new programming language
+
+```javascript
+socket.emit("language-change", {
+  language: "python",
+});
+```
+
+#### Block Focus/Blur
+
+**Purpose:** Tracks when users start or stop editing specific blocks. Used for showing which blocks are currently being edited.
+
+**Expected Data:**
+
+- `notebookId` - The notebook containing the block
+- `blockId` - The block being focused/blurred
+
+```javascript
+// Focus on block
+socket.emit("user-focus-block", {
+  notebookId: "notebook_123_abc",
+  blockId: "block_789_xyz",
+});
+
+// Blur from block
+socket.emit("user-blur-block", {
+  notebookId: "notebook_123_abc",
+  blockId: "block_789_xyz",
+});
+```
+
+#### Block Content Changes
+
+**Purpose:** Provides visual feedback about block content changes separate from YJS updates. Used for UI state management.
+
+**Expected Data:**
+
+- `notebookId` - The notebook containing the block
+- `blockId` - The block being changed
+- `content` - The new content
+- `isExecuting` - Whether the block is currently executing
+
+```javascript
+socket.emit("block-content-changed", {
+  notebookId: "notebook_123_abc",
+  blockId: "block_789_xyz",
+  content: "print('Hello World')",
+  isExecuting: false,
+});
+```
+
+#### YJS Updates
+
+**Purpose:** Sends YJS document updates for conflict-free collaborative editing. Core mechanism for real-time synchronization.
+
+**Expected Data:**
+
+- `notebookId` - The notebook being updated
+- `update` - Base64-encoded YJS update
+
+```javascript
+// Send YJS update
+socket.emit("yjs-update", {
+  notebookId: "notebook_123_abc",
+  update: "base64-encoded-update",
+});
+
+// Request document state
+socket.emit("request-yjs-state", {
+  notebookId: "notebook_123_abc",
+});
+```
+
+#### Notebook Management via Socket.IO
+
+**Purpose:** Alternative to REST API for notebook CRUD operations. Provides real-time feedback for management actions.
+
+**Expected Data:**
+
+- For create: `roomId`, `title`
+- For update: `notebookId`, `title`
+- For delete: `roomId`, `notebookId`
+
+```javascript
+// Create notebook
+socket.emit("notebook:create", {
+  roomId: "room123",
+  title: "My Socket Notebook",
+});
+
+// Update notebook
+socket.emit("notebook:update", {
+  notebookId: "notebook_123_abc",
+  title: "Renamed via Socket",
+});
+
+// Delete notebook
+socket.emit("notebook:delete", {
+  roomId: "room123",
+  notebookId: "notebook_123_abc",
+});
+```
+
+#### Block Management via Socket.IO
+
+**Purpose:** Alternative to REST API for block CRUD operations. Provides real-time feedback for block management actions.
+
+**Expected Data:**
+
+- For create: `notebookId`, `type`, `position`, `language?`
+- For delete: `notebookId`, `blockId`
+- For move: `notebookId`, `blockId`, `newPosition`
+
+```javascript
+// Create block
+socket.emit("block:create", {
+  notebookId: "notebook_123_abc",
+  type: "code",
+  position: 0,
+  language: "python",
+});
+
+// Delete block
+socket.emit("block:delete", {
+  notebookId: "notebook_123_abc",
+  blockId: "block_789_xyz",
+});
+
+// Move block
+socket.emit("block:move", {
+  notebookId: "notebook_123_abc",
+  blockId: "block_789_xyz",
+  newPosition: 2,
+});
+```
+
+### Incoming Events (Server → Client)
+
+#### Connection Events
+
+**Purpose:** Handle Socket.IO connection lifecycle. Essential for managing connection state and reconnection logic.
+
+**Received Data:**
+
+- `connect`: No data, socket.id available
+- `disconnect`: No data
+
+**Usage:** Update UI connection status, reinitialize collaboration state on reconnection.
+
+```javascript
+socket.on("connect", () => {
+  console.log("Connected:", socket.id);
+  // Reinitialize: join room, request document states
+});
+
+socket.on("disconnect", () => {
+  console.log("Disconnected");
+  // Update UI: show offline status, queue operations
+});
+```
+
+#### Notebook Events
+
+**Purpose:** Receive real-time notifications about notebook lifecycle changes from any participant in the room.
+
+**Received Data Structure:**
+
+- `notebook:created`: `{ notebook: NotebookObject, createdBy: userId }`
+- `notebook:updated`: `{ notebook: NotebookObject, updatedBy: userId }`
+- `notebook:deleted`: `{ notebookId: string, deletedBy: userId }`
+
+**Usage:** Update notebook lists, refresh UI, handle active notebook deletion.
+
+```javascript
+socket.on("notebook:created", (data) => {
+  // data: { notebook: { id, title, roomId, createdBy, createdAt, updatedAt }, createdBy: "user456" }
+  console.log(
+    `New notebook "${data.notebook.title}" created by ${data.createdBy}`
+  );
+  // Add to notebook list, update UI
+});
+
+socket.on("notebook:updated", (data) => {
+  // data: { notebook: { id, title, roomId, createdBy, createdAt, updatedAt }, updatedBy: "user789" }
+  console.log(`Notebook "${data.notebook.title}" updated by ${data.updatedBy}`);
+  // Update notebook in list, refresh if currently active
+});
+
+socket.on("notebook:deleted", (data) => {
+  // data: { notebookId: "notebook_123_abc", deletedBy: "user456" }
+  console.log(`Notebook deleted by ${data.deletedBy}`);
+  // Remove from list, close if currently active, clear editor
+});
+```
+
+#### Block Events
+
+**Purpose:** Receive real-time notifications about block lifecycle changes within notebooks. Essential for maintaining synchronized block structure.
+
+**Received Data Structure:**
+
+- `block:created`: `{ notebookId, block: BlockObject, createdBy: userId }`
+- `block:deleted`: `{ notebookId, blockId, deletedBy: userId }`
+- `block:moved`: `{ notebookId, blockId, newPosition, movedBy: userId }`
+
+**Usage:** Update block lists, maintain proper order, refresh notebook view when blocks change.
+
+```javascript
+socket.on("block:created", (data) => {
+  // data: { notebookId: "notebook_123_abc", block: { id, type, language, position, createdAt, updatedAt }, createdBy: "user456" }
+  console.log(
+    `New ${data.block.type} block created in notebook by ${data.createdBy}`
+  );
+  // Add block to notebook, resort by position, update UI
+});
+
+socket.on("block:deleted", (data) => {
+  // data: { notebookId: "notebook_123_abc", blockId: "block_789_xyz", deletedBy: "user456" }
+  console.log(`Block deleted from notebook by ${data.deletedBy}`);
+  // Remove block from UI, close if currently editing, cleanup YJS bindings
+});
+
+socket.on("block:moved", (data) => {
+  // data: { notebookId: "notebook_123_abc", blockId: "block_789_xyz", newPosition: 2, movedBy: "user456" }
+  console.log(`Block moved to position ${data.newPosition} by ${data.movedBy}`);
+  // Reorder blocks in UI, update positions, maintain editor focus
+});
+```
+
+#### Real-time Collaboration Events
+
+**Purpose:** Receive live updates about other users' editing activities. Core functionality for collaborative awareness and synchronization.
+
+**Received Data Structure:**
+
+- `code-changed`: `{ userEmail, content, cursorPosition, fileId, changeId, timestamp }`
+- `cursor-moved`: `{ userId, userEmail, position, notebookId, blockId }`
+- `selection-changed`: `{ userId, userEmail, startPos, endPos, notebookId, blockId }`
+- `typing-start`: `{ userId, userEmail, position, notebookId, blockId }`
+- `typing-stop`: `{ userId, userEmail }`
+- `language-change`: `{ language, userEmail }`
+
+**Usage:** Update editor content, show user cursors, display text selections, maintain collaboration awareness.
+
+```javascript
+socket.on("code-changed", (data) => {
+  // data: { userEmail: "user@example.com", content: "print('Hello World')", cursorPosition: { line: 0, column: 20 }, fileId: "notebook_123_abc", changeId: "change_456", timestamp: "2025-09-13T10:30:00Z" }
+  console.log(`Code changed by ${data.userEmail}`);
+  // Update editor content (if not using YJS), show change indicator
+});
+
+socket.on("cursor-moved", (data) => {
+  // data: { userId: "user456", userEmail: "user@example.com", position: { line: 5, column: 12 }, notebookId: "notebook_123_abc", blockId: "block_789_xyz" }
+  console.log(`${data.userEmail} moved cursor in block ${data.blockId}`);
+  // Display user cursor, update presence indicators
+});
+
+socket.on("typing-start", (data) => {
+  // data: { userId: "user456", userEmail: "user@example.com", position: { line: 3, column: 8 }, notebookId: "notebook_123_abc", blockId: "block_789_xyz" }
+  console.log(`${data.userEmail} started typing in block ${data.blockId}`);
+  // Show typing indicator, update user presence
+});
+
+socket.on("language-change", (data) => {
+  // data: { language: "python", userEmail: "user@example.com" }
+  console.log(`Language changed to ${data.language} by ${data.userEmail}`);
+  // Update syntax highlighting, refresh editor language
+});
+```
+
+#### User Presence Events
+
+**Purpose:** Track user activity and presence within the collaboration room. Essential for showing who's online and what they're working on.
+
+**Received Data Structure:**
+
+- `user-joined`: `{ userId, userEmail }` - Someone joined the room
+- `user-left`: `{ userId, userEmail }` - Someone left the room
+- `user-focus-block`: `{ userId, userEmail, notebookId, blockId }` - User started editing a block
+- `user-blur-block`: `{ userId, userEmail, notebookId, blockId }` - User stopped editing a block
+
+**Usage:** Update participant lists, show active users, highlight blocks being edited.
+
+```javascript
+socket.on("user-joined", (data) => {
+  // data: { userId: "user789", userEmail: "newuser@example.com" }
+  console.log(`${data.userEmail} joined the room`);
+  // Add to participant list, show join notification
+});
+
+socket.on("user-focus-block", (data) => {
+  // data: { userId: "user456", userEmail: "user@example.com", notebookId: "notebook_123_abc", blockId: "block_789_xyz" }
+  console.log(`${data.userEmail} started editing block ${data.blockId}`);
+  // Highlight block as active, show user avatar
+});
+```
+
+#### YJS Events
+
+**Purpose:** Handle YJS CRDT synchronization for conflict-free collaborative editing. Core mechanism for real-time document updates.
+
+**Received Data Structure:**
+
+- `yjs-update`: `{ notebookId, update, userId }` - Incremental document update
+- `yjs-state`: `{ notebookId, state }` - Complete document state
+
+**Usage:** Apply YJS updates to local document, synchronize collaborative editing state.
+
+```javascript
+socket.on("yjs-update", (data) => {
+  // data: { notebookId: "notebook_123_abc", update: "base64-encoded-update", userId: "user456" }
+  console.log(`YJS update received for notebook ${data.notebookId}`);
+  // Apply update to YJS document, trigger collaborative editor sync
+});
+
+socket.on("yjs-state", (data) => {
+  // data: { notebookId: "notebook_123_abc", state: "base64-encoded-state" }
+  console.log(`YJS state received for notebook ${data.notebookId}`);
+  // Initialize YJS document with complete state, sync collaborative editor
+});
+```
+
+#### Chat Events
+
+**Purpose:** Handle chat messages within the collaboration room. Provides communication alongside code collaboration.
+
+**Received Data Structure:**
+
+- `message`: `{ userId, email, content, timestamp }` - New chat message
+- `chat-history`: `Array<{ userId, email, content, timestamp }>` - Chat history on join
+
+**Usage:** Display chat messages, maintain chat history, show notifications.
+
+```javascript
+socket.on("message", (data) => {
+  // data: { userId: "user456", email: "user@example.com", content: "Hey everyone!", timestamp: "2025-09-13T10:30:00Z" }
+  console.log(`${data.email}: ${data.content}`);
+  // Add to chat UI, show notification if not focused
+});
+
+socket.on("chat-history", (data) => {
+  // data: { roomId: "room123", messages: [{ userId, email, content, timestamp }] }
+  console.log(
+    `Received ${data.messages.length} chat messages for room ${data.roomId}`
+  );
+  // Load chat history into UI
+});
+```
+
+#### Chat Outgoing Events
+
+**Purpose:** Send chat messages and request chat history.
+
+**Expected Data:**
+
+- `chat:send`: `{ roomId, content }` - Send a message
+- `request-chat-history`: `{ roomId }` - Request chat history
+
+```javascript
+// Send a chat message
+socket.emit("chat:send", {
+  roomId: "room123",
+  content: "Hello everyone!",
+});
+
+// Request chat history
+socket.emit("request-chat-history", {
+  roomId: "room123",
+});
+```
+
+#### Room Events
+
+**Purpose:** Receive current room participant information when joining or when the participant list changes.
+
+**Received Data Structure:**
+
+- `room-participants`: `Array<{ userId, email }>` - Current room participants
+
+**Usage:** Initialize participant list, update room member display.
+
+```javascript
+socket.on("room-participants", (data) => {
+  // data: [{ userId: "user123", email: "first@example.com" }, { userId: "user456", email: "second@example.com" }]
+  console.log(`Room has ${data.length} participants`);
+  // Initialize participant list, show online users
+});
+```
+
+#### Error Events
+
+**Purpose:** Handle collaboration-specific errors and failed operations. Essential for debugging and user feedback.
+
+**Received Data Structure:**
+
+- `error`: `{ message }` - Error description
+
+**Usage:** Show error messages, handle failed operations, debug issues.
+
+```javascript
+socket.on("error", (data) => {
+  // data: { message: "Failed to join room: insufficient permissions" }
+  console.error(`Collaboration error: ${data.message}`);
+  // Show error notification, handle failed operations
+});
+```
+
+#### Additional Events
+
+**Purpose:** Handle miscellaneous room and connection events.
+
+**Outgoing Events:**
+
+- `get-room-participants` - Request current room participants
+- `leave-room` - Leave the current room
+
+**Incoming Events:**
+
+- `chat:error` - Chat-related errors
+
+```javascript
+// Request room participants
+socket.emit("get-room-participants");
+
+// Leave room
+socket.emit("leave-room");
+
+// Handle chat errors
+socket.on("chat:error", (data) => {
+  // data: { message: "Error description" }
+  console.error("Chat error:", data.message);
+});
+```
+
+## 🚨 Error Responses
+
+**REST API Error Format:**
 
 ```json
 {
@@ -632,323 +944,33 @@ All REST endpoints return errors in this format:
 }
 ```
 
-## 🎯 Complete Code Collaboration Implementation
+**Common HTTP Status Codes:**
+
+- `401` - Unauthorized (invalid/missing JWT token)
+- `403` - Forbidden (insufficient permissions)
+- `404` - Not found (notebook/block doesn't exist)
+- `400` - Bad request (invalid data)
+- `500` - Internal server error
+
+**Socket.IO Error Handling:**
 
 ```javascript
-class NotebookCollaboration {
-  constructor(socket, roomId) {
-    this.socket = socket;
-    this.roomId = roomId;
-    this.notebooks = new Map(); // notebookId -> YJS Doc
-    this.activeUsers = new Map(); // userId -> { notebookId, blockId, cursor }
+socket.on("error", (error) => {
+  // Handle real-time collaboration errors
+  console.error("Socket error:", error.message);
+});
 
-    this.setupCodeCollaborationEvents();
-  }
-
-  setupCodeCollaborationEvents() {
-    // Real-time code collaboration
-    this.socket.on("code-changed", (data) => {
-      this.updateEditorContent(data);
-    });
-
-    this.socket.on("cursor-moved", (data) => {
-      this.updateUserCursor(data);
-    });
-
-    this.socket.on("selection-changed", (data) => {
-      this.updateUserSelection(data);
-    });
-
-    this.socket.on("typing-start", (data) => {
-      this.showTypingIndicator(data);
-    });
-
-    this.socket.on("typing-stop", (data) => {
-      this.hideTypingIndicator(data);
-    });
-
-    this.socket.on("language-change", (data) => {
-      this.updateLanguage(data);
-    });
-
-    // Notebook management
-    this.socket.on("notebook:created", (data) => {
-      this.addNotebookToList(data.notebook);
-    });
-
-    this.socket.on("notebook:updated", (data) => {
-      this.updateNotebookInList(data.notebook);
-    });
-
-    this.socket.on("notebook:deleted", (data) => {
-      this.removeNotebookFromList(data.notebookId);
-    });
-
-    // YJS document synchronization
-    this.socket.on("yjs-update", (data) => {
-      this.applyYjsUpdate(data);
-    });
-
-    this.socket.on("yjs-state", (data) => {
-      this.syncYjsState(data);
-    });
-  }
-
-  // Notebook management
-  async createNotebook(title) {
-    const response = await fetch(
-      `http://localhost:4000/api/collaboration/rooms/${this.roomId}/notebooks`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ title }),
-      }
-    );
-    return response.json();
-  }
-
-  async getNotebooks() {
-    const response = await fetch(
-      `http://localhost:4000/api/collaboration/rooms/${this.roomId}/notebooks`
-    );
-    return response.json();
-  }
-
-  async updateNotebook(notebookId, title) {
-    const response = await fetch(
-      `http://localhost:4000/api/collaboration/notebooks/${notebookId}`,
-      {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ title }),
-      }
-    );
-    return response.json();
-  }
-
-  async deleteNotebook(notebookId) {
-    const response = await fetch(
-      `http://localhost:4000/api/collaboration/notebooks/${notebookId}`,
-      {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-        },
-      }
-    );
-    return response.json();
-  }
-
-  // Block management
-  async createBlock(notebookId, type, position, language) {
-    const response = await fetch(
-      `http://localhost:4000/api/collaboration/notebooks/${notebookId}/blocks`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ type, position, language }),
-      }
-    );
-    return response.json();
-  }
-
-  // Code collaboration methods
-  sendCodeChange(content, cursorPosition, notebookId, blockId) {
-    this.socket.emit("code-change", {
-      content,
-      cursorPosition,
-      notebookId,
-      blockId,
-      changeId: `change_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    });
-  }
-
-  sendCursorMove(position, notebookId, blockId) {
-    this.socket.emit("cursor-move", {
-      position,
-      notebookId,
-      blockId,
-    });
-  }
-
-  sendTextSelection(startPos, endPos, notebookId, blockId) {
-    this.socket.emit("selection-change", {
-      startPos,
-      endPos,
-      notebookId,
-      blockId,
-    });
-  }
-
-  startTyping(position, notebookId, blockId) {
-    this.socket.emit("typing-start", {
-      position,
-      notebookId,
-      blockId,
-    });
-  }
-
-  stopTyping() {
-    this.socket.emit("typing-stop");
-  }
-
-  changeLanguage(language) {
-    this.socket.emit("language-change", { language });
-  }
-
-  // YJS integration methods
-  setupYjsDocument(notebookId) {
-    // Request initial document state
-    this.socket.emit("request-yjs-state", { notebookId });
-
-    // Setup YJS document change listener
-    const ydoc = new Y.Doc();
-    ydoc.on("update", (update) => {
-      const updateBase64 = btoa(String.fromCharCode(...update));
-      this.socket.emit("yjs-update", {
-        notebookId,
-        update: updateBase64,
-      });
-    });
-
-    this.notebooks.set(notebookId, ydoc);
-    return ydoc;
-  }
-
-  applyYjsUpdate(data) {
-    const ydoc = this.notebooks.get(data.notebookId);
-    if (ydoc && data.userId !== this.userId) {
-      const update = Uint8Array.from(atob(data.update), (c) => c.charCodeAt(0));
-      Y.applyUpdate(ydoc, update);
-    }
-  }
-
-  syncYjsState(data) {
-    const ydoc = this.notebooks.get(data.notebookId);
-    if (ydoc) {
-      const state = Uint8Array.from(atob(data.state), (c) => c.charCodeAt(0));
-      Y.applyUpdate(ydoc, state);
-    }
-  }
-
-  // UI update methods (implement based on your editor)
-  updateEditorContent(data) {
-    // Update editor content in specific notebook/block
-    console.log(
-      `Code changed in ${data.fileId}:${data.blockId} by ${data.userEmail}`
-    );
-    // this.editor.setValue(data.content);
-  }
-
-  updateUserCursor(data) {
-    // Show user cursor in specific block
-    this.activeUsers.set(data.userId, {
-      notebookId: data.notebookId,
-      blockId: data.blockId,
-      position: data.position,
-      userEmail: data.userEmail,
-    });
-    // this.editor.showCursor(data.userId, data.position);
-  }
-
-  updateUserSelection(data) {
-    // Show user text selection
-    console.log(
-      `User ${data.userEmail} selected text in ${data.notebookId}:${data.blockId}`
-    );
-    // this.editor.showSelection(data.userId, data.startPos, data.endPos);
-  }
-
-  showTypingIndicator(data) {
-    // Show typing indicator for user in specific block
-    console.log(
-      `${data.userEmail} is typing in ${data.notebookId}:${data.blockId}`
-    );
-    // this.ui.showTypingIndicator(data.userId, data.blockId);
-  }
-
-  hideTypingIndicator(data) {
-    // Hide typing indicator
-    console.log(`${data.userEmail} stopped typing`);
-    // this.ui.hideTypingIndicator(data.userId);
-  }
-
-  // Notebook UI update methods
-  addNotebookToList(notebook) {
-    // Add notebook to UI list
-    console.log("Adding notebook to list:", notebook.title);
-    // this.ui.addNotebook(notebook);
-  }
-
-  updateNotebookInList(notebook) {
-    // Update notebook in UI list
-    console.log("Updating notebook in list:", notebook.title);
-    // this.ui.updateNotebook(notebook);
-  }
-
-  removeNotebookFromList(notebookId) {
-    // Remove notebook from UI list
-    console.log("Removing notebook from list:", notebookId);
-    // this.ui.removeNotebook(notebookId);
-  }
-}
-
-// Usage Example
-const collaboration = new NotebookCollaboration(socket, "room123");
-
-// Create a new notebook
-const notebook = await collaboration.createNotebook("My ML Experiment");
-
-// Create a code block
-const block = await collaboration.createBlock(
-  notebook.data.id,
-  "code",
-  0,
-  "python"
-);
-
-// Start collaborating on the block
-collaboration.sendCodeChange(
-  "import pandas as pd\ndf = pd.read_csv('data.csv')",
-  { line: 1, column: 25 },
-  notebook.data.id,
-  block.data.id
-);
+socket.on("connect_error", (error) => {
+  // Handle connection errors (auth, network)
+  console.error("Connection error:", error.message);
+});
 ```
 
-## Key Integration Points
+**All events include:**
 
-### 1. **Multiple Notebooks per Room**
+- `userId` - User who triggered the event
+- `userEmail` - Email of the user
+- `timestamp` - When the event occurred
+- Relevant data for the specific event type
 
-- Each room can have unlimited notebooks
-- Each notebook gets its own Y.Doc for independent collaboration
-- Use REST API to create/manage notebooks, Socket.IO for real-time sync
-
-### 2. **Block-Level Collaboration**
-
-- Create different block types: `code`, `markdown`, `output`
-- Each block has independent Y.Text for content
-- Track cursors and selections per block
-
-### 3. **Real-time Synchronization**
-
-- Send `code-change` events with `notebookId` and `blockId` for precise targeting
-- Use YJS for conflict-free collaborative editing
-- Track user presence down to specific blocks
-
-### 4. **Conflict-Free Editing**
-
-- YJS CRDT ensures no merge conflicts
-- Automatic operational transformation
-- Real-time synchronization across all users
-
-This focused guide covers everything needed to implement advanced collaborative notebook editing with real-time code synchronization! 🚀
+This ensures complete real-time synchronization across all users in collaborative notebook editing sessions! 🚀

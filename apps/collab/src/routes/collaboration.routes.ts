@@ -89,6 +89,17 @@ router.post(
         title,
         createdBy
       );
+
+      // Broadcast the new notebook to all users in the room via Socket.IO
+      const realtimeService = req.app.locals.realtimeService;
+      if (realtimeService) {
+        realtimeService.broadcastToRoom(roomId, "notebook:created", {
+          notebook,
+          createdBy: req.user?.email,
+          timestamp: Date.now(),
+        });
+      }
+
       res.json({ success: true, data: notebook });
     } catch (error) {
       console.error("Create notebook error:", error);
@@ -129,6 +140,20 @@ router.put(
         });
       }
 
+      // Broadcast the notebook update to all users in the room
+      const realtimeService = req.app.locals.realtimeService;
+      if (realtimeService) {
+        // We need to find the room for this notebook first
+        const notebook = await yjsManager.findNotebook(notebookId);
+        if (notebook) {
+          realtimeService.broadcastToRoom(notebook.roomId, "notebook:updated", {
+            notebook: updatedNotebook,
+            updatedBy: req.user?.email,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
       res.json({ success: true, data: updatedNotebook });
     } catch (error) {
       console.error("Update notebook error:", error);
@@ -150,12 +175,25 @@ router.delete(
       const { notebookId } = req.params;
       const yjsManager = getYjsManager(req);
 
+      // Get notebook info before deleting (to know which room to broadcast to)
+      const notebook = await yjsManager.findNotebook(notebookId);
+
       const deleted = await yjsManager.deleteNotebook(notebookId);
 
       if (!deleted) {
         return res.status(404).json({
           success: false,
           error: "Notebook not found",
+        });
+      }
+
+      // Broadcast the notebook deletion to all users in the room
+      const realtimeService = req.app.locals.realtimeService;
+      if (realtimeService && notebook) {
+        realtimeService.broadcastToRoom(notebook.roomId, "notebook:deleted", {
+          notebookId,
+          deletedBy: req.user?.email,
+          timestamp: Date.now(),
         });
       }
 
@@ -181,7 +219,17 @@ router.get("/notebooks/:notebookId/blocks", (req: Request, res: Response) => {
     const { notebookId } = req.params;
     const yjsManager = getYjsManager(req);
     const blocks = yjsManager.getBlocks(notebookId);
-    res.json({ success: true, data: blocks });
+
+    // Enhance blocks with content
+    const blocksWithContent = blocks.map((block) => {
+      const ytext = yjsManager.getBlockText(notebookId, block.id);
+      return {
+        ...block,
+        content: ytext ? ytext.toString() : "",
+      };
+    });
+
+    res.json({ success: true, data: blocksWithContent });
   } catch (error) {
     console.error("Get blocks error:", error);
     res.status(500).json({
@@ -195,7 +243,7 @@ router.get("/notebooks/:notebookId/blocks", (req: Request, res: Response) => {
 router.post(
   "/notebooks/:notebookId/blocks",
   verifyToken,
-  (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { notebookId } = req.params;
       const { type, position, language } = req.body;
@@ -208,12 +256,39 @@ router.post(
         });
       }
 
+      // Validate block type
+      if (!["code", "markdown", "output"].includes(type)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid block type. Must be 'code', 'markdown', or 'output'",
+        });
+      }
+
+      // Validate language for code blocks
+      if (type === "code" && !language) {
+        return res.status(400).json({
+          success: false,
+          error: "Language is required for code blocks",
+        });
+      }
+
       const block = yjsManager.createBlock(
         notebookId,
         type,
         position,
         language
       );
+
+      // Broadcast the new block to all users in the room via Socket.IO
+      const realtimeService = req.app.locals.realtimeService;
+      if (realtimeService) {
+        await realtimeService.broadcastBlockCreated(
+          notebookId,
+          block,
+          req.user?.email
+        );
+      }
+
       res.json({ success: true, data: block });
     } catch (error) {
       console.error("Create block error:", error);
@@ -229,13 +304,23 @@ router.post(
 router.delete(
   "/notebooks/:notebookId/blocks/:blockId",
   verifyToken,
-  (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { notebookId, blockId } = req.params;
       const yjsManager = getYjsManager(req);
       const success = yjsManager.deleteBlock(notebookId, blockId);
 
       if (success) {
+        // Broadcast the block deletion to all users in the room
+        const realtimeService = req.app.locals.realtimeService;
+        if (realtimeService) {
+          await realtimeService.broadcastBlockDeleted(
+            notebookId,
+            blockId,
+            req.user?.email
+          );
+        }
+
         res.json({ success: true, message: "Block deleted successfully" });
       } else {
         res.status(404).json({ success: false, error: "Block not found" });
@@ -254,7 +339,7 @@ router.delete(
 router.put(
   "/notebooks/:notebookId/blocks/:blockId/position",
   verifyToken,
-  (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { notebookId, blockId } = req.params;
       const { position } = req.body;
@@ -270,6 +355,17 @@ router.put(
       const success = yjsManager.moveBlock(notebookId, blockId, position);
 
       if (success) {
+        // Broadcast the block move to all users in the room
+        const realtimeService = req.app.locals.realtimeService;
+        if (realtimeService) {
+          await realtimeService.broadcastBlockMoved(
+            notebookId,
+            blockId,
+            position,
+            req.user?.email
+          );
+        }
+
         res.json({ success: true, message: "Block moved successfully" });
       } else {
         res.status(404).json({ success: false, error: "Block not found" });
