@@ -33,8 +33,11 @@ app.get("/health", (req, res) => {
 // Initialize realtime collaboration service
 const realtimeService = new RealtimeCollaborationService(httpServer);
 
+
+
 // Attach service to routes for access (simplified approach)
 app.locals.realtimeService = realtimeService;
+
 
 // API routes
 app.use("/api/collaboration", collaborationRoutes);

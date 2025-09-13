@@ -5,6 +5,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+  "test:all": "pnpm -w --filter core test && pnpm -w --filter collab test && pnpm -w --filter api test",
+  "test:ci": "pnpm -w --filter core test --reporter=default && pnpm -w --filter collab test --reporter=default && pnpm -w --filter api test --reporter=default",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "clean": "turbo run clean && rm -rf node_modules"
