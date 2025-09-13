@@ -1,5 +1,7 @@
 import AiChatService from '../services/aiChatService';
 
+//pnpm test --reporter=default
+
 // Mock the @google/genai package used by the service
 jest.mock('@google/genai', () => {
   return {
