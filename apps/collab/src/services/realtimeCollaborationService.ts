@@ -611,8 +611,6 @@ class RealtimeCollaborationService {
     }
   }
 
-  
-
   private handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
     if (!socket.userId || !socket.userEmail) return;
 
@@ -623,15 +621,12 @@ class RealtimeCollaborationService {
     socket.roomId = roomId;
     socket.join(roomId);
 
-
-
     // Notify other users in the room
     socket.to(roomId).emit("message", {
       content: `${socket.userEmail} has joined the collaboration room`,
       timestamp: Date.now(),
       system: true,
     });
-
 
     // Add user to room participants
     if (!this.roomParticipants[roomId]) {
