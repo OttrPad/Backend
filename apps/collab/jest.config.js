@@ -1,11 +1,29 @@
-/** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
-  testEnvironment: 'node',
-  testMatch: ['**/__tests__/**/*.test.(ts|js)', '**/?(*.)+(spec|test).(ts|js)'],
-  moduleFileExtensions: ['ts', 'js', 'json', 'node'],
+  preset: "ts-jest",
+  testEnvironment: "node",
+  roots: ["<rootDir>/src", "<rootDir>/tests"],
+  testMatch: ["**/__tests__/**/*.ts", "**/?(*.)+(spec|test).ts"],
   transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: 'tsconfig.json' }]
+    "^.+\\.ts$": [
+      "ts-jest",
+      {
+        useESM: false,
+        tsconfig: {
+          types: ["jest", "node"],
+        },
+      },
+    ],
   },
-  collectCoverageFrom: ['src/**/*.{ts,js}', '!src/**/index.ts'],
-  coverageDirectory: '<rootDir>/coverage'
+  collectCoverageFrom: [
+    "src/**/*.ts",
+    "!src/**/*.d.ts",
+    "!src/app.ts", // Exclude main app file
+  ],
+  coverageDirectory: "coverage",
+  coverageReporters: ["text", "lcov", "html"],
+  setupFilesAfterEnv: ["<rootDir>/tests/setup.ts"],
+  testTimeout: 30000,
+  verbose: true,
+  detectOpenHandles: true,
+  forceExit: true,
 };

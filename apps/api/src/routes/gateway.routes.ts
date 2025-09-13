@@ -1122,6 +1122,483 @@ router.post(
 );
 
 // =============================================================================
+// NOTEBOOK COLLABORATION ROUTES
+// Proxied to Collaboration Service
+// =============================================================================
+
+/**
+ * @swagger
+ * /api/collaboration/rooms/{roomId}/notebooks:
+ *   get:
+ *     summary: Get all notebooks in a room
+ *     description: Retrieve list of all notebooks in a collaboration room
+ *     tags: [Collaboration, Notebooks]
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Room ID
+ *     responses:
+ *       200:
+ *         description: Notebooks retrieved successfully
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.get("/collaboration/rooms/:roomId/notebooks", async (req, res) => {
+  await serviceProxy.proxyRequest(
+    "collaboration",
+    `/api/collaboration/rooms/${req.params.roomId}/notebooks`,
+    req,
+    res
+  );
+});
+
+/**
+ * @swagger
+ * /api/collaboration/rooms/{roomId}/notebooks:
+ *   post:
+ *     summary: Create a new notebook in a room
+ *     description: Create a new collaborative notebook in the specified room
+ *     tags: [Collaboration, Notebooks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Room ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: Notebook title
+ *                 example: "My Data Analysis"
+ *     responses:
+ *       201:
+ *         description: Notebook created successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.post(
+  "/collaboration/rooms/:roomId/notebooks",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/rooms/${req.params.roomId}/notebooks`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/collaboration/notebooks/{notebookId}:
+ *   put:
+ *     summary: Update a notebook (rename)
+ *     description: Update notebook properties like title
+ *     tags: [Collaboration, Notebooks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: notebookId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notebook ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: New notebook title
+ *                 example: "Renamed Data Analysis"
+ *     responses:
+ *       200:
+ *         description: Notebook updated successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Notebook not found
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.put(
+  "/collaboration/notebooks/:notebookId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/notebooks/${req.params.notebookId}`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/collaboration/notebooks/{notebookId}:
+ *   delete:
+ *     summary: Delete a notebook
+ *     description: Permanently delete a notebook and all its blocks
+ *     tags: [Collaboration, Notebooks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: notebookId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notebook ID
+ *     responses:
+ *       200:
+ *         description: Notebook deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Notebook not found
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.delete(
+  "/collaboration/notebooks/:notebookId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/notebooks/${req.params.notebookId}`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/collaboration/notebooks/{notebookId}/blocks:
+ *   get:
+ *     summary: Get all blocks in a notebook
+ *     description: Retrieve list of all blocks in a notebook
+ *     tags: [Collaboration, Notebooks]
+ *     parameters:
+ *       - name: notebookId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notebook ID
+ *     responses:
+ *       200:
+ *         description: Blocks retrieved successfully
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.get("/collaboration/notebooks/:notebookId/blocks", async (req, res) => {
+  await serviceProxy.proxyRequest(
+    "collaboration",
+    `/api/collaboration/notebooks/${req.params.notebookId}/blocks`,
+    req,
+    res
+  );
+});
+
+/**
+ * @swagger
+ * /api/collaboration/notebooks/{notebookId}/blocks:
+ *   post:
+ *     summary: Create a new block in a notebook
+ *     description: Create a new block (code, markdown, or output) in the specified notebook
+ *     tags: [Collaboration, Notebooks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: notebookId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notebook ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - type
+ *               - position
+ *             properties:
+ *               type:
+ *                 type: string
+ *                 enum: [code, markdown, output]
+ *                 description: Block type
+ *                 example: "code"
+ *               position:
+ *                 type: integer
+ *                 description: Block position in notebook
+ *                 example: 0
+ *               language:
+ *                 type: string
+ *                 description: Programming language (required for code blocks)
+ *                 example: "python"
+ *     responses:
+ *       201:
+ *         description: Block created successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.post(
+  "/collaboration/notebooks/:notebookId/blocks",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/notebooks/${req.params.notebookId}/blocks`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/collaboration/notebooks/{notebookId}/blocks/{blockId}:
+ *   delete:
+ *     summary: Delete a block from a notebook
+ *     description: Remove a specific block from the notebook
+ *     tags: [Collaboration, Notebooks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: notebookId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notebook ID
+ *       - name: blockId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Block ID
+ *     responses:
+ *       200:
+ *         description: Block deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Block not found
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.delete(
+  "/collaboration/notebooks/:notebookId/blocks/:blockId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/notebooks/${req.params.notebookId}/blocks/${req.params.blockId}`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/collaboration/notebooks/{notebookId}/blocks/{blockId}/position:
+ *   put:
+ *     summary: Move a block to a new position
+ *     description: Change the position of a block within the notebook
+ *     tags: [Collaboration, Notebooks]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: notebookId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notebook ID
+ *       - name: blockId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Block ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - position
+ *             properties:
+ *               position:
+ *                 type: integer
+ *                 description: New position for the block
+ *                 example: 2
+ *     responses:
+ *       200:
+ *         description: Block position updated successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Block not found
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.put(
+  "/collaboration/notebooks/:notebookId/blocks/:blockId/position",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/notebooks/${req.params.notebookId}/blocks/${req.params.blockId}/position`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/collaboration/notebooks/{notebookId}/blocks/{blockId}/content:
+ *   get:
+ *     summary: Get block content
+ *     description: Retrieve the current content of a specific block
+ *     tags: [Collaboration, Notebooks]
+ *     parameters:
+ *       - name: notebookId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notebook ID
+ *       - name: blockId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Block ID
+ *     responses:
+ *       200:
+ *         description: Block content retrieved successfully
+ *       404:
+ *         description: Block not found
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.get(
+  "/collaboration/notebooks/:notebookId/blocks/:blockId/content",
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "collaboration",
+      `/api/collaboration/notebooks/${req.params.notebookId}/blocks/${req.params.blockId}/content`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/collaboration/notebooks/{notebookId}/state:
+ *   get:
+ *     summary: Get YJS document state
+ *     description: Retrieve the current YJS document state for collaborative editing
+ *     tags: [Collaboration, Notebooks]
+ *     parameters:
+ *       - name: notebookId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notebook ID
+ *     responses:
+ *       200:
+ *         description: Document state retrieved successfully
+ *       404:
+ *         description: Notebook not found
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.get("/collaboration/notebooks/:notebookId/state", async (req, res) => {
+  await serviceProxy.proxyRequest(
+    "collaboration",
+    `/api/collaboration/notebooks/${req.params.notebookId}/state`,
+    req,
+    res
+  );
+});
+
+/**
+ * @swagger
+ * /api/collaboration/notebooks/{notebookId}/load:
+ *   post:
+ *     summary: Load notebook document
+ *     description: Initialize or load a notebook document for collaborative editing
+ *     tags: [Collaboration, Notebooks]
+ *     parameters:
+ *       - name: notebookId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notebook ID
+ *     responses:
+ *       200:
+ *         description: Document loaded successfully
+ *       404:
+ *         description: Notebook not found
+ *       503:
+ *         description: Collaboration service unavailable
+ */
+router.post("/collaboration/notebooks/:notebookId/load", async (req, res) => {
+  await serviceProxy.proxyRequest(
+    "collaboration",
+    `/api/collaboration/notebooks/${req.params.notebookId}/load`,
+    req,
+    res
+  );
+});
+
+// =============================================================================
 // ROOM MANAGEMENT ROUTES
 // Proxied to Core Service
 // =============================================================================
