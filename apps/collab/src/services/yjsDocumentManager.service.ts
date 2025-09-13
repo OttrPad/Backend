@@ -89,6 +89,68 @@ export class YjsDocumentManager {
   }
 
   /**
+   * Update a notebook (rename/modify)
+   */
+  async updateNotebook(
+    notebookId: string,
+    updates: { title?: string }
+  ): Promise<NotebookDocument | null> {
+    // Find the notebook across all rooms
+    for (const [roomId, notebooks] of this.inMemoryNotebooks.entries()) {
+      const notebookIndex = notebooks.findIndex((nb) => nb.id === notebookId);
+      if (notebookIndex !== -1) {
+        const notebook = notebooks[notebookIndex];
+
+        // Update the notebook
+        const updatedNotebook = {
+          ...notebook,
+          ...updates,
+          updatedAt: Date.now(),
+        };
+
+        // Update in memory
+        notebooks[notebookIndex] = updatedNotebook;
+
+        // Update Y.Doc metadata
+        const ydoc = this.getDocument(notebookId);
+        const metadata = ydoc.getMap("metadata");
+        if (updates.title) {
+          metadata.set("title", updates.title);
+        }
+        metadata.set("updatedAt", Date.now());
+
+        return updatedNotebook;
+      }
+    }
+
+    return null; // Notebook not found
+  }
+
+  /**
+   * Delete a notebook
+   */
+  async deleteNotebook(notebookId: string): Promise<boolean> {
+    // Find and remove the notebook across all rooms
+    for (const [roomId, notebooks] of this.inMemoryNotebooks.entries()) {
+      const notebookIndex = notebooks.findIndex((nb) => nb.id === notebookId);
+      if (notebookIndex !== -1) {
+        // Remove from memory
+        notebooks.splice(notebookIndex, 1);
+
+        // Clean up Y.Doc
+        this.documents.delete(notebookId);
+
+        // Remove from room
+        this.removeNotebookFromRoom(roomId, notebookId);
+
+        return true;
+      }
+    }
+
+    return false; // Notebook not found
+  }
+
+  /**
    * Create a new block in a notebook
    */
   createBlock(
@@ -221,6 +283,17 @@ export class YjsDocumentManager {
       blockContent: ydoc.getMap("blockContent") as any,
       metadata: ydoc.getMap("metadata") as any,
     });
+  }
+
+  /**
+   * Remove a notebook from a room's tracking
+   */
+  private removeNotebookFromRoom(roomId: string, notebookId: string): void {
+    const room = this.rooms.get(roomId);
+    if (room) {
+      room.notebooks.delete(notebookId);
+      room.lastActivity = Date.now();
+    }
   }
 
   /**

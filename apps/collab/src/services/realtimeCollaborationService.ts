@@ -1,6 +1,7 @@
 import { Server as SocketServer, Socket } from "socket.io";
 import { Server as HttpServer } from "http";
 import jwt from "jsonwebtoken";
+import { YjsDocumentManager } from "./yjsDocumentManager.service";
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -25,6 +26,11 @@ interface CodeChangeEvent {
   content: string;
   cursorPosition?: { line: number; column: number };
   timestamp: number;
+  changeId?: string; // For tracking individual changes
+  fileId?: string; // For multi-file support
+  fileName?: string; // Human-readable filename
+  lineNumber?: number; // Specific line being edited
+  changeType?: "edit" | "insert" | "delete"; // Type of change
 }
 
 interface CursorMoveEvent {
@@ -32,6 +38,29 @@ interface CursorMoveEvent {
   userId: string;
   userEmail: string;
   position: { line: number; column: number };
+  timestamp: number;
+}
+
+interface SelectionChangeEvent {
+  roomId: string;
+  userId: string;
+  userEmail: string;
+  startPos: { line: number; column: number };
+  endPos: { line: number; column: number };
+  timestamp: number;
+}
+
+interface TypingIndicatorEvent {
+  userId: string;
+  userEmail: string;
+  position?: { line: number; column: number };
+  timestamp: number;
+}
+
+interface LanguageChangeEvent {
+  userId: string;
+  userEmail: string;
+  language: string;
   timestamp: number;
 }
 
@@ -53,16 +82,23 @@ class RealtimeCollaborationService {
   private io: SocketServer;
   private roomParticipants: RoomParticipants = {};
   private chatHistory: { [roomId: string]: ChatMessage[] } = {};
+  private codeHistory: { [roomId: string]: CodeChangeEvent[] } = {}; // Track code changes per room
+  private yjsManager: YjsDocumentManager; // Add YJS integration
 
   // Configuration from environment variables
   private readonly maxChatMessageLength: number;
   private readonly chatHistoryLimit: number;
+  private readonly codeHistoryLimit: number;
 
   constructor(httpServer: HttpServer) {
     this.maxChatMessageLength = parseInt(
       process.env.CHAT_MESSAGE_MAX_LENGTH || "5000"
     );
     this.chatHistoryLimit = parseInt(process.env.CHAT_HISTORY_LIMIT || "100");
+    this.codeHistoryLimit = parseInt(process.env.CODE_HISTORY_LIMIT || "50");
+
+    // Initialize YJS document manager
+    this.yjsManager = new YjsDocumentManager();
 
     this.io = new SocketServer(httpServer, {
       cors: {
@@ -74,90 +110,6 @@ class RealtimeCollaborationService {
 
     this.setupSocketHandlers();
     console.log("🔌 Realtime Collaboration Service initialized");
-  }
-
-  /**
-   * Fetch room data from core service using room code
-   */
-  private async getRoomByCode(
-    roomCode: string,
-    userId: string,
-    userEmail: string
-  ) {
-    try {
-      const coreServiceUrl =
-        process.env.CORE_SERVICE_URL || "http://localhost:4001";
-
-      // Prepare headers for core service authentication
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "x-gateway-user-id": userId,
-        "x-gateway-user-email": userEmail,
-        "x-original-url": "/api/rooms/join", // Required by core service
-      };
-
-      // Add shared secret if configured
-      const sharedSecret = process.env.GATEWAY_SHARED_SECRET;
-      if (sharedSecret) {
-        headers["x-gateway-secret"] = sharedSecret;
-      }
-
-      console.log(`Calling core service to resolve room code: ${roomCode}`);
-
-      const response = await fetch(`${coreServiceUrl}/api/rooms/join`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ room_code: roomCode }),
-      });
-
-      if (!response.ok) {
-        // Log more detailed error info
-        let errorText = "";
-        try {
-          errorText = await response.text();
-        } catch (e) {
-          errorText = "Could not read error response";
-        }
-
-        console.error(`Core service error ${response.status}:`, errorText);
-
-        if (response.status === 404) {
-          return null; // Room not found
-        }
-        throw new Error(`Core service error: ${response.status}`);
-      }
-
-      let data;
-      try {
-        console.log(
-          `Response status: ${response.status}, attempting to parse JSON...`
-        );
-        data = await response.json();
-        console.log(
-          `Core service response data:`,
-          JSON.stringify(data, null, 2)
-        );
-      } catch (jsonError) {
-        console.error(`Failed to parse JSON response:`, jsonError);
-        // Get raw text for debugging - but response body might already be consumed
-        try {
-          const responseClone = response.clone();
-          const responseText = await responseClone.text();
-          console.error(`Raw response text:`, responseText);
-        } catch (e) {
-          console.error(`Could not read response text for debugging`);
-        }
-        throw new Error(`Invalid JSON response from core service`);
-      }
-
-      console.log(
-        `Room code ${roomCode} resolved successfully to room ID: ${data.room?.id}`
-      );
-      return data.room;
-    } catch (error) {
-      console.error("Failed to fetch room by code:", error);
-      throw error;
-    }
   }
 
   private setupSocketHandlers() {
@@ -205,6 +157,9 @@ class RealtimeCollaborationService {
         (data: {
           content: string;
           cursorPosition?: { line: number; column: number };
+          changeId?: string;
+          notebookId?: string; // Optional: sync with YJS if provided
+          blockId?: string; // Optional: sync with specific block
         }) => {
           this.handleCodeChange(socket, data);
         }
@@ -212,7 +167,11 @@ class RealtimeCollaborationService {
 
       socket.on(
         "cursor-move",
-        (data: { position: { line: number; column: number } }) => {
+        (data: {
+          position: { line: number; column: number };
+          notebookId?: string;
+          blockId?: string;
+        }) => {
           this.handleCursorMove(socket, data);
         }
       );
@@ -222,8 +181,64 @@ class RealtimeCollaborationService {
         (data: {
           startPos: { line: number; column: number };
           endPos: { line: number; column: number };
+          notebookId?: string;
+          blockId?: string;
         }) => {
           this.handleSelectionChange(socket, data);
+        }
+      );
+
+      // Additional code collaboration events
+      socket.on(
+        "typing-start",
+        (data: {
+          position: { line: number; column: number };
+          notebookId?: string;
+          blockId?: string;
+        }) => {
+          this.handleTypingStart(socket, data);
+        }
+      );
+
+      socket.on("typing-stop", () => {
+        this.handleTypingStop(socket);
+      });
+
+      socket.on("language-change", (data: { language: string }) => {
+        this.handleLanguageChange(socket, data);
+      });
+
+      // YJS Document collaboration events
+      socket.on(
+        "yjs-update",
+        (data: { notebookId: string; update: string }) => {
+          this.handleYjsUpdate(socket, data);
+        }
+      );
+
+      socket.on("request-yjs-state", (data: { notebookId: string }) => {
+        this.handleRequestYjsState(socket, data);
+      });
+
+      // Notebook management events
+      socket.on(
+        "notebook:create",
+        (data: { roomId: string; title: string }) => {
+          this.handleCreateNotebook(socket, data);
+        }
+      );
+
+      socket.on(
+        "notebook:delete",
+        (data: { roomId: string; notebookId: string }) => {
+          this.handleDeleteNotebook(socket, data);
+        }
+      );
+
+      socket.on(
+        "notebook:update",
+        (data: { notebookId: string; title: string }) => {
+          this.handleUpdateNotebook(socket, data);
         }
       );
 
@@ -232,6 +247,173 @@ class RealtimeCollaborationService {
         this.sendChatHistory(socket, data.roomId);
       });
     });
+  }
+
+  private handleYjsUpdate(
+    socket: AuthenticatedSocket,
+    data: { notebookId: string; update: string }
+  ) {
+    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
+
+    try {
+      // Apply the update to the YJS document
+      const updateBytes = Buffer.from(data.update, "base64");
+      this.yjsManager.applyUpdate(data.notebookId, updateBytes);
+
+      // Broadcast the update to other users in the room
+      socket.to(socket.roomId).emit("yjs-update", {
+        notebookId: data.notebookId,
+        update: data.update,
+        userId: socket.userId,
+        userEmail: socket.userEmail,
+      });
+
+      console.log(
+        `📝 YJS update applied for notebook ${data.notebookId} by ${socket.userEmail}`
+      );
+    } catch (error) {
+      console.error("Error handling YJS update:", error);
+      socket.emit("error", {
+        message: "Failed to apply document update",
+      });
+    }
+  }
+
+  private handleRequestYjsState(
+    socket: AuthenticatedSocket,
+    data: { notebookId: string }
+  ) {
+    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
+
+    try {
+      // Get the current state of the YJS document
+      const state = this.yjsManager.getDocumentState(data.notebookId);
+      const stateBase64 = Buffer.from(state).toString("base64");
+
+      // Send the state back to the requesting client
+      socket.emit("yjs-state", {
+        notebookId: data.notebookId,
+        state: stateBase64,
+      });
+
+      console.log(
+        `📤 YJS state sent for notebook ${data.notebookId} to ${socket.userEmail}`
+      );
+    } catch (error) {
+      console.error("Error handling YJS state request:", error);
+      socket.emit("error", {
+        message: "Failed to get document state",
+      });
+    }
+  }
+
+  private async handleCreateNotebook(
+    socket: AuthenticatedSocket,
+    data: { roomId: string; title: string }
+  ) {
+    if (!socket.userId || !socket.userEmail) return;
+
+    try {
+      const notebook = await this.yjsManager.createNotebook(
+        data.roomId,
+        data.title,
+        socket.userId
+      );
+
+      // Broadcast the new notebook to all users in the room
+      this.io.to(data.roomId).emit("notebook:created", {
+        notebook,
+        createdBy: socket.userEmail,
+        timestamp: Date.now(),
+      });
+
+      console.log(
+        `📓 Notebook "${data.title}" created in room ${data.roomId} by ${socket.userEmail}`
+      );
+    } catch (error) {
+      console.error("Error creating notebook:", error);
+      socket.emit("error", {
+        message: "Failed to create notebook",
+      });
+    }
+  }
+
+  private handleDeleteNotebook(
+    socket: AuthenticatedSocket,
+    data: { roomId: string; notebookId: string }
+  ) {
+    if (!socket.userId || !socket.userEmail) return;
+
+    try {
+      // Broadcast notebook deletion to all users in the room
+      this.io.to(data.roomId).emit("notebook:deleted", {
+        notebookId: data.notebookId,
+        deletedBy: socket.userEmail,
+        timestamp: Date.now(),
+      });
+
+      console.log(
+        `🗑️ Notebook ${data.notebookId} deleted from room ${data.roomId} by ${socket.userEmail}`
+      );
+    } catch (error) {
+      console.error("Error deleting notebook:", error);
+      socket.emit("error", {
+        message: "Failed to delete notebook",
+      });
+    }
+  }
+
+  private async handleUpdateNotebook(
+    socket: AuthenticatedSocket,
+    data: { notebookId: string; title: string }
+  ) {
+    if (!socket.userId || !socket.userEmail) return;
+
+    try {
+      // Update the notebook
+      const updatedNotebook = await this.yjsManager.updateNotebook(
+        data.notebookId,
+        {
+          title: data.title,
+        }
+      );
+
+      if (!updatedNotebook) {
+        socket.emit("error", {
+          message: "Notebook not found",
+        });
+        return;
+      }
+
+      // Find the room ID for the notebook
+      let roomId: string | null = null;
+      for (const [currentRoomId, participants] of Object.entries(
+        this.roomParticipants
+      )) {
+        if (participants.has(socket.userId)) {
+          roomId = currentRoomId;
+          break;
+        }
+      }
+
+      if (roomId) {
+        // Broadcast notebook update to all users in the room
+        this.io.to(roomId).emit("notebook:updated", {
+          notebook: updatedNotebook,
+          updatedBy: socket.userEmail,
+          timestamp: Date.now(),
+        });
+
+        console.log(
+          `📝 Notebook ${data.notebookId} renamed to "${data.title}" by ${socket.userEmail}`
+        );
+      }
+    } catch (error) {
+      console.error("Error updating notebook:", error);
+      socket.emit("error", {
+        message: "Failed to update notebook",
+      });
+    }
   }
 
   private async authenticateSocket(
@@ -265,84 +447,6 @@ class RealtimeCollaborationService {
       console.error("❌ Authentication failed:", error);
       next(new Error("Authentication failed"));
     }
-  }
-
-  private async handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
-    if (!socket.userId || !socket.userEmail) return;
-
-    // If roomId looks like a room code (contains dashes), convert it to room ID
-    let actualRoomId = roomId;
-
-    if (roomId.includes("-")) {
-      console.log(`Converting room code ${roomId} to room ID...`);
-      try {
-        const roomData = await this.getRoomByCode(
-          roomId,
-          socket.userId,
-          socket.userEmail
-        );
-        console.log(`getRoomByCode returned in join:`, roomData);
-        if (!roomData) {
-          console.error(`Room not found for code: ${roomId}`);
-          return;
-        }
-        actualRoomId = roomData.id.toString();
-        console.log(`Room code ${roomId} resolved to room ID: ${actualRoomId}`);
-      } catch (error) {
-        console.error("Room code conversion failed:", error);
-        return;
-      }
-    }
-
-    // Leave the previous room if any
-    this.handleLeaveRoom(socket);
-
-    // Join the new room using the actual room ID
-    socket.roomId = actualRoomId;
-    socket.join(actualRoomId);
-
-    // Notify other users in the room
-    socket.to(actualRoomId).emit("message", {
-      content: `${socket.userEmail} has joined the collaboration room`,
-      timestamp: Date.now(),
-      system: true,
-    });
-
-    // Add user to room participants
-    if (!this.roomParticipants[actualRoomId]) {
-      this.roomParticipants[actualRoomId] = new Map();
-    }
-
-    const userInfo: UserInfo = {
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      socketId: socket.id,
-    };
-
-    this.roomParticipants[actualRoomId].set(socket.userId, userInfo);
-
-    // Notify others in the room about the new user
-    const joinEvent: UserJoinEvent = {
-      roomId: actualRoomId,
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      timestamp: Date.now(),
-    };
-
-    socket.to(actualRoomId).emit("user-joined", joinEvent);
-
-    // Send current participants list to the new user
-    const participants = Array.from(
-      this.roomParticipants[actualRoomId].values()
-    );
-    socket.emit("room-participants", { roomId: actualRoomId, participants });
-
-    // Send chat history to the new user
-    this.sendChatHistory(socket, actualRoomId);
-
-    console.log(
-      `✅ User ${socket.userEmail} joined collaboration room ${actualRoomId}`
-    );
   }
 
   private async handleChatSend(
@@ -385,40 +489,12 @@ class RealtimeCollaborationService {
         return;
       }
 
-      // Convert room code to actual room ID if needed
-      let actualRoomId = roomId;
-      if (roomId.includes("-") && socket.userId && socket.userEmail) {
-        console.log(`Converting room code ${roomId} to room ID for chat...`);
-        try {
-          const roomData = await this.getRoomByCode(
-            roomId,
-            socket.userId,
-            socket.userEmail
-          );
-          console.log(`getRoomByCode returned:`, roomData);
-          if (roomData) {
-            actualRoomId = roomData.id.toString();
-            console.log(
-              `Room code ${roomId} resolved to room ID: ${actualRoomId} for chat`
-            );
-          } else {
-            console.log(
-              `getRoomByCode returned null/falsy for room code: ${roomId}`
-            );
-          }
-        } catch (error) {
-          console.error("Room code conversion failed in chat:", error);
-          // Continue with original roomId if conversion fails
-        }
-      }
-
-      // Ensure sender is in the room (using actual room ID)
-      if (!socket.rooms.has(actualRoomId)) {
+      // Ensure sender is in the room
+      if (!socket.rooms.has(roomId)) {
         const error = "Join the room before sending messages";
         console.warn("[chat:send] sender not in room:", {
           socketId: socket.id,
           roomId,
-          actualRoomId,
           rooms: Array.from(socket.rooms),
         });
         socket.emit("chat:error", { message: error });
@@ -433,25 +509,118 @@ class RealtimeCollaborationService {
         timestamp: Date.now(),
       };
 
-      // Store message in chat history using actual room ID
-      this.addToChatHistory(actualRoomId, chatMessage);
+      // Store message in chat history
+      this.addToChatHistory(roomId, chatMessage);
 
-      const roomSize =
-        this.io.sockets.adapter.rooms.get(actualRoomId)?.size || 0;
+      const roomSize = this.io.sockets.adapter.rooms.get(roomId)?.size || 0;
       console.log("[chat:send] broadcasting to room:", {
         roomId,
-        actualRoomId,
         roomSize,
         from: socket.userEmail,
       });
 
       // Broadcast to all users in the room (including sender for consistency)
-      this.io.to(actualRoomId).emit("message", chatMessage);
+      this.io.to(roomId).emit("message", chatMessage);
       ack?.({ ok: true });
     } catch (err) {
       console.error("[chat:send] error:", err);
       socket.emit("chat:error", { message: "Failed to send message" });
       ack?.({ ok: false, error: "Failed to send message" });
+    }
+  }
+
+  private handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
+    if (!socket.userId || !socket.userEmail) return;
+
+    // Leave the previous room if any
+    this.handleLeaveRoom(socket);
+
+    // Join the new room
+    socket.roomId = roomId;
+    socket.join(roomId);
+
+    // Notify other users in the room
+    socket.to(roomId).emit("message", {
+      content: `${socket.userEmail} has joined the collaboration room`,
+      timestamp: Date.now(),
+      system: true,
+    });
+
+    // Add user to room participants
+    if (!this.roomParticipants[roomId]) {
+      this.roomParticipants[roomId] = new Map();
+    }
+
+    const userInfo: UserInfo = {
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      socketId: socket.id,
+    };
+
+    this.roomParticipants[roomId].set(socket.userId, userInfo);
+
+    // Notify others in the room about the new user
+    const joinEvent: UserJoinEvent = {
+      roomId,
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      timestamp: Date.now(),
+    };
+
+    socket.to(roomId).emit("user-joined", joinEvent);
+
+    // Send current participants list to the new user
+    const participants = Array.from(this.roomParticipants[roomId].values());
+    socket.emit("room-participants", { roomId, participants });
+
+    // Send chat history to the new user
+    this.sendChatHistory(socket, roomId);
+
+    // Send code history to the new user
+    this.sendCodeHistory(socket, roomId);
+
+    // Ensure default notebook exists for the room
+    this.ensureDefaultNotebook(roomId, socket.userId);
+
+    console.log(
+      `✅ User ${socket.userEmail} joined collaboration room ${roomId}`
+    );
+  }
+
+  private async ensureDefaultNotebook(roomId: string, userId: string) {
+    try {
+      const notebooks = await this.yjsManager.getNotebooks(roomId);
+
+      // Check if there's already a default notebook (main.py)
+      const hasDefaultNotebook = notebooks.some((nb) => nb.title === "main.py");
+
+      if (!hasDefaultNotebook) {
+        // Create the default notebook
+        const defaultNotebook = await this.yjsManager.createNotebook(
+          roomId,
+          "main.py",
+          userId
+        );
+
+        // Create a default code block
+        const defaultBlock = this.yjsManager.createBlock(
+          defaultNotebook.id,
+          "code",
+          0,
+          "python"
+        );
+
+        console.log(`📓 Created default notebook "main.py" for room ${roomId}`);
+
+        // Notify all users in the room about the new notebook
+        this.io.to(roomId).emit("notebook:created", {
+          notebook: defaultNotebook,
+          createdBy: userId,
+          timestamp: Date.now(),
+        });
+      }
+    } catch (error) {
+      console.error("Error ensuring default notebook:", error);
     }
   }
 
@@ -477,6 +646,7 @@ class RealtimeCollaborationService {
       if (this.roomParticipants[roomId].size === 0) {
         delete this.roomParticipants[roomId];
         delete this.chatHistory[roomId]; // Also clean up chat history
+        delete this.codeHistory[roomId]; // Also clean up code history
       }
     }
 
@@ -496,7 +666,13 @@ class RealtimeCollaborationService {
 
   private handleCodeChange(
     socket: AuthenticatedSocket,
-    data: { content: string; cursorPosition?: { line: number; column: number } }
+    data: {
+      content: string;
+      cursorPosition?: { line: number; column: number };
+      changeId?: string;
+      notebookId?: string; // Optional: sync with YJS if provided
+      blockId?: string; // Optional: sync with specific block
+    }
   ) {
     if (!socket.roomId || !socket.userId || !socket.userEmail) return;
 
@@ -506,11 +682,42 @@ class RealtimeCollaborationService {
       userEmail: socket.userEmail,
       content: data.content,
       cursorPosition: data.cursorPosition,
+      changeId:
+        data.changeId ||
+        `change_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       timestamp: Date.now(),
+      fileId: data.notebookId || "main", // Use notebookId as fileId if provided
+      fileName: data.notebookId ? `${data.notebookId}.ipynb` : "main.js",
+      lineNumber: data.cursorPosition?.line || 0,
+      changeType: "edit", // Default change type
     };
+
+    // If notebookId and blockId are provided, sync with YJS document
+    if (data.notebookId && data.blockId) {
+      try {
+        const ytext = this.yjsManager.getBlockText(
+          data.notebookId,
+          data.blockId
+        );
+        if (ytext) {
+          // Update the YJS text content
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, data.content);
+
+          console.log(
+            `🔄 Synced code change with YJS notebook ${data.notebookId}, block ${data.blockId}`
+          );
+        }
+      } catch (error) {
+        console.error("Error syncing code change with YJS:", error);
+      }
+    }
 
     // Broadcast to all other users in the room
     socket.to(socket.roomId).emit("code-changed", changeEvent);
+
+    // Store the change in history
+    this.addToCodeHistory(socket.roomId, changeEvent);
 
     console.log(
       `📝 Code change by ${socket.userEmail} in room ${socket.roomId}`
@@ -519,7 +726,11 @@ class RealtimeCollaborationService {
 
   private handleCursorMove(
     socket: AuthenticatedSocket,
-    data: { position: { line: number; column: number } }
+    data: {
+      position: { line: number; column: number };
+      notebookId?: string;
+      blockId?: string;
+    }
   ) {
     if (!socket.roomId || !socket.userId || !socket.userEmail) return;
 
@@ -531,8 +742,15 @@ class RealtimeCollaborationService {
       timestamp: Date.now(),
     };
 
+    // Enhanced cursor event with block information
+    const enhancedCursorEvent = {
+      ...cursorEvent,
+      notebookId: data.notebookId,
+      blockId: data.blockId,
+    };
+
     // Broadcast cursor position to all other users in the room
-    socket.to(socket.roomId).emit("cursor-moved", cursorEvent);
+    socket.to(socket.roomId).emit("cursor-moved", enhancedCursorEvent);
   }
 
   private handleSelectionChange(
@@ -540,6 +758,8 @@ class RealtimeCollaborationService {
     data: {
       startPos: { line: number; column: number };
       endPos: { line: number; column: number };
+      notebookId?: string;
+      blockId?: string;
     }
   ) {
     if (!socket.roomId || !socket.userId || !socket.userEmail) return;
@@ -550,6 +770,8 @@ class RealtimeCollaborationService {
       userEmail: socket.userEmail,
       startPos: data.startPos,
       endPos: data.endPos,
+      notebookId: data.notebookId,
+      blockId: data.blockId,
       timestamp: Date.now(),
     };
 
@@ -579,9 +801,29 @@ class RealtimeCollaborationService {
     }
   }
 
+  private addToCodeHistory(roomId: string, changeEvent: CodeChangeEvent) {
+    if (!this.codeHistory[roomId]) {
+      this.codeHistory[roomId] = [];
+    }
+
+    this.codeHistory[roomId].push(changeEvent);
+
+    // Keep only the most recent code changes
+    if (this.codeHistory[roomId].length > this.codeHistoryLimit) {
+      this.codeHistory[roomId] = this.codeHistory[roomId].slice(
+        -this.codeHistoryLimit
+      );
+    }
+  }
+
   private sendChatHistory(socket: AuthenticatedSocket, roomId: string) {
     const history = this.chatHistory[roomId] || [];
     socket.emit("chat-history", { roomId, messages: history });
+  }
+
+  private sendCodeHistory(socket: AuthenticatedSocket, roomId: string) {
+    const history = this.codeHistory[roomId] || [];
+    socket.emit("code-history", { roomId, changes: history });
   }
 
   // Public methods for external access
@@ -589,8 +831,75 @@ class RealtimeCollaborationService {
     return Array.from(this.roomParticipants[roomId]?.values() || []);
   }
 
+  private handleTypingStart(
+    socket: AuthenticatedSocket,
+    data: {
+      position: { line: number; column: number };
+      notebookId?: string;
+      blockId?: string;
+    }
+  ) {
+    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
+
+    // Broadcast to other users in the room
+    socket.to(socket.roomId).emit("typing-start", {
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      position: data.position,
+      notebookId: data.notebookId,
+      blockId: data.blockId,
+      timestamp: Date.now(),
+    });
+  }
+
+  private handleTypingStop(socket: AuthenticatedSocket) {
+    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
+
+    // Broadcast to other users in the room
+    socket.to(socket.roomId).emit("typing-stop", {
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      timestamp: Date.now(),
+    });
+  }
+
+  private handleLanguageChange(
+    socket: AuthenticatedSocket,
+    data: { language: string }
+  ) {
+    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
+
+    // Broadcast to other users in the room
+    socket.to(socket.roomId).emit("language-change", {
+      userId: socket.userId,
+      userEmail: socket.userEmail,
+      language: data.language,
+      timestamp: Date.now(),
+    });
+  }
+
   public broadcastToRoom(roomId: string, event: string, data: any) {
     this.io.to(roomId).emit(event, data);
+  }
+
+  public getRoomCodeHistory(roomId: string): CodeChangeEvent[] {
+    return this.codeHistory[roomId] || [];
+  }
+
+  public getRoomChatHistory(roomId: string): ChatMessage[] {
+    return this.chatHistory[roomId] || [];
+  }
+
+  public clearRoomHistory(
+    roomId: string,
+    type: "chat" | "code" | "all" = "all"
+  ) {
+    if (type === "chat" || type === "all") {
+      delete this.chatHistory[roomId];
+    }
+    if (type === "code" || type === "all") {
+      delete this.codeHistory[roomId];
+    }
   }
 
   public kickUserFromRoom(roomId: string, userId: string, reason?: string) {
@@ -607,6 +916,10 @@ class RealtimeCollaborationService {
         this.handleLeaveRoom(socket as AuthenticatedSocket);
       }
     }
+  }
+
+  public getYjsManager(): YjsDocumentManager {
+    return this.yjsManager;
   }
 }
 
