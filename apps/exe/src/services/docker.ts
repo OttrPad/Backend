@@ -1,5 +1,6 @@
 import Docker from "dockerode";
 import stream from "stream";
+import { log } from "@ottrpad/logger";
 
 const docker = new Docker();
 const roomContainers: Record<string, Docker.Container> = {};
@@ -23,16 +24,13 @@ function startReaper() {
           try {
             const inspect = await c.inspect();
             if (inspect.State.Running) {
-              console.log(
-                `[exe][docker] Idle timeout reached; stopping room ${roomId}`
-              );
+              log.info(`Idle timeout reached; stopping room ${roomId}`);
               await c.stop();
             }
           } catch (e) {
-            console.warn(
-              `[exe][docker] Idle stop failed for room ${roomId}:`,
-              (e as any)?.message || e
-            );
+            log.warn(`Idle stop failed for room ${roomId}`, {
+              error: (e as any)?.message || e,
+            });
           }
         }
         delete roomContainers[roomId];
@@ -56,15 +54,12 @@ export async function startContainer(roomId: string) {
       if (!inspect.State.Running) {
         try {
           await existing.start();
-          console.log(`[exe][docker] Re-started existing container ${name}`);
+          log.info(`Re-started existing container ${name}`);
         } catch (e) {
-          console.warn(
-            `[exe][docker] Failed to start existing container ${name}:`,
-            e
-          );
+          log.warn(`Failed to start existing container ${name}`, { error: e });
         }
       } else {
-        console.log(`[exe][docker] Reusing running container ${name}`);
+        log.info(`Reusing running container ${name}`);
       }
       roomContainers[roomId] = existing;
       markActivity(roomId);
@@ -72,9 +67,7 @@ export async function startContainer(roomId: string) {
       return existing;
     }
 
-    console.log(
-      `[exe][docker] Creating container name=${name} image=python:3.11-slim`
-    );
+    log.info(`Creating container name=${name} image=python:3.11-slim`);
     const container = await docker.createContainer({
       Image: "python:3.11-slim",
       name,
@@ -94,16 +87,15 @@ export async function startContainer(roomId: string) {
       },
     });
     await container.start();
-    console.log(`[exe][docker] Started container ${name}`);
+    log.info(`Started container ${name}`);
     roomContainers[roomId] = container;
     markActivity(roomId);
     startReaper();
     return container;
   } catch (err: any) {
-    console.error(
-      `[exe][docker] Failed to start container ${name}:`,
-      err?.message || err
-    );
+    log.error(`Failed to start container ${name}`, {
+      error: err?.message || err,
+    });
     throw new Error(
       `Failed to start container for room ${roomId}: ${err?.message || err}`
     );
@@ -119,10 +111,7 @@ async function findContainerByName(
     if (!info) return null;
     return docker.getContainer(info.Id);
   } catch (e) {
-    console.warn(
-      `[exe][docker] listContainers failed while searching for ${name}:`,
-      e
-    );
+    log.warn(`listContainers failed while searching for ${name}`, { error: e });
     return null;
   }
 }
@@ -131,56 +120,57 @@ export async function execCode(roomId: string, code: string): Promise<string> {
   let container = roomContainers[roomId];
   if (!container) throw new Error("No container running for this room");
   markActivity(roomId);
-  // TEMP DEBUG LOG: remove after verifying multiple exec flow
-  console.log(
-    `[exe][docker][exec] room=${roomId} codeSnippet=${JSON.stringify(
-      code.length > 40 ? code.slice(0, 37) + "..." : code
-    )}`
-  );
+  const startTs = Date.now();
+  const codeSnippet = code.length > 60 ? code.slice(0, 57) + "..." : code;
+  log.debug(`exec.start room=${roomId}`, { codeSnippet });
 
   // Ensure container is still running; if not, attempt restart.
   try {
     const inspect = await container.inspect();
     if (!inspect.State.Running) {
-      console.warn(
-        `[exe][docker] Container for room ${roomId} not running (status=${inspect.State.Status}); attempting restart`
+      log.warn(
+        `Container not running; attempting restart room=${roomId} status=${inspect.State.Status}`
       );
       try {
         await container.start();
-        console.log(`[exe][docker] Restarted container for room ${roomId}`);
+        log.info(`Restarted container for room ${roomId}`);
       } catch (e) {
-        console.warn(
-          `[exe][docker] Restart failed; recreating container for room ${roomId}`
-        );
+        log.warn(`Restart failed; recreating container room=${roomId}`);
         // Remove stale reference and recreate fully
         delete roomContainers[roomId];
         container = await startContainer(roomId);
       }
     }
   } catch (e) {
-    console.warn(
-      `[exe][docker] inspect failed before exec for room ${roomId}:`,
-      e
-    );
+    log.warn(`inspect failed before exec room=${roomId}`, { error: e });
   }
 
-  async function runExec(cmd: string[]): Promise<string> {
+  async function runExec(
+    cmd: string[]
+  ): Promise<{ output: string; exitCode: number | null }> {
     const exec = await container.exec({
       Cmd: cmd,
       AttachStdout: true,
       AttachStderr: true,
     });
-    return new Promise<string>((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       exec.start({ hijack: true, stdin: false }, (err, streamObj) => {
         if (err) return reject(err);
-        if (!streamObj) return resolve("");
+        if (!streamObj) return resolve({ output: "", exitCode: null });
         let output = "";
         const stdout = new stream.PassThrough();
         const stderr = new stream.PassThrough();
         (container as any).modem.demuxStream(streamObj, stdout, stderr);
         stdout.on("data", (c) => (output += c.toString()));
         stderr.on("data", (c) => (output += c.toString()));
-        streamObj.on("end", () => resolve(output));
+        streamObj.on("end", async () => {
+          try {
+            const inspect = await exec.inspect();
+            resolve({ output, exitCode: inspect.ExitCode });
+          } catch {
+            resolve({ output, exitCode: null });
+          }
+        });
         streamObj.on("error", (e) => reject(e));
       });
     });
@@ -188,28 +178,39 @@ export async function execCode(roomId: string, code: string): Promise<string> {
 
   // Try python3, fallback to python
   try {
-    const out = await runExec(["python3", "-c", code]);
-    // TEMP RESULT LOG
-    console.log(
-      `[exe][docker][exec][result] room=${roomId} preview=${JSON.stringify(
-        out.length > 60 ? out.slice(0, 57) + "..." : out
-      )} length=${out.length}`
-    );
-    return out;
+    const { output, exitCode } = await runExec(["python3", "-c", code]);
+    const durationMs = Date.now() - startTs;
+    log.info(`exec.success room=${roomId}`, {
+      lang: "python3",
+      durationMs,
+      exitCode,
+      outPreview: output.length > 120 ? output.slice(0, 117) + "..." : output,
+      outLength: output.length,
+    });
+    return output;
   } catch (primaryErr: any) {
-    console.warn(
-      `[exe][docker] python3 exec failed for room ${roomId}, attempting python fallback:`,
-      primaryErr?.message || primaryErr
-    );
+    log.warn(`exec.fallback room=${roomId}`, {
+      primaryError: primaryErr?.message || primaryErr,
+    });
     try {
-      const out = await runExec(["python", "-c", code]);
-      console.log(
-        `[exe][docker][exec][result][fallback] room=${roomId} preview=${JSON.stringify(
-          out.length > 60 ? out.slice(0, 57) + "..." : out
-        )} length=${out.length}`
-      );
-      return out;
+      const { output, exitCode } = await runExec(["python", "-c", code]);
+      const durationMs = Date.now() - startTs;
+      log.info(`exec.success room=${roomId}`, {
+        lang: "python",
+        durationMs,
+        exitCode,
+        outPreview: output.length > 120 ? output.slice(0, 117) + "..." : output,
+        outLength: output.length,
+        fallback: true,
+      });
+      return output;
     } catch (fallbackErr: any) {
+      const durationMs = Date.now() - startTs;
+      log.error(`exec.failure room=${roomId}`, {
+        durationMs,
+        primaryError: primaryErr?.message || primaryErr,
+        fallbackError: fallbackErr?.message || fallbackErr,
+      });
       throw new Error(
         `Exec failed (python3 + python fallback). Primary: ${primaryErr?.message || primaryErr}; Fallback: ${fallbackErr?.message || fallbackErr}`
       );
@@ -225,10 +226,9 @@ export async function stopContainer(roomId: string) {
     if (inspect.State.Running) {
       // Attempt a fast stop (t=0 sends SIGKILL immediately for most images)
       const stopPromise = container.stop({ t: 0 }).catch((e) => {
-        console.warn(
-          `[exe][docker] stop (t=0) failed for room ${roomId}, will fallback to kill:`,
-          (e as any)?.message || e
-        );
+        log.warn(`stop (t=0) failed, will fallback to kill room=${roomId}`, {
+          error: (e as any)?.message || e,
+        });
         return Promise.reject(e);
       });
       // Fallback kill if stop hangs beyond 3s
@@ -236,9 +236,7 @@ export async function stopContainer(roomId: string) {
         const timer = setTimeout(async () => {
           try {
             await container.kill();
-            console.log(
-              `[exe][docker] kill fallback executed for room ${roomId}`
-            );
+            log.info(`kill fallback executed room=${roomId}`);
             resolve();
           } catch (killErr) {
             reject(killErr);
@@ -254,14 +252,12 @@ export async function stopContainer(roomId: string) {
           });
       });
       await timed;
-      console.log(`[exe][docker] Stopped container for room ${roomId}`);
+      log.info(`Stopped container room=${roomId}`);
     } else {
-      console.log(
-        `[exe][docker] Stop requested but container already not running room=${roomId}`
-      );
+      log.info(`Stop requested but container not running room=${roomId}`);
     }
   } catch (e) {
-    console.error(`[exe][docker] Error stopping container room=${roomId}:`, e);
+    log.error(`Error stopping container room=${roomId}`, { error: e });
   }
   delete roomContainers[roomId];
   delete lastActivity[roomId];

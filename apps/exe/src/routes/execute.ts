@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { startContainer, execCode, stopContainer } from "../services/docker";
+import { log } from "@ottrpad/logger";
 
 const router: ReturnType<typeof Router> = Router();
 const rooms: Record<string, any> = {}; // roomId -> container instance
@@ -24,7 +25,7 @@ router.post("/room/:roomId/exec", async (req: Request, res: Response) => {
     res.json({ output });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[exe][route][exec] room=${roomId} error=`, err);
+    log.error(`route exec failed room=${roomId}`, { error: err });
     res.status(500).json({ error: "execution_failed", message: msg });
   }
 });
