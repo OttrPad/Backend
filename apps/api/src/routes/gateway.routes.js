@@ -1,56 +1,27 @@
-import { Router, Request, Response } from "express";
-import { serviceProxy } from "../services/proxy.service";
-import { verifySupabaseJWT } from "../middleware/auth.middleware";
-
-const router: Router = Router();
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const proxy_service_1 = require("../services/proxy.service");
+const auth_middleware_1 = require("../middleware/auth.middleware");
+const router = (0, express_1.Router)();
 // =============================================================================
 // EXECUTION SERVICE PROXY ROUTES
 // All execution routes can be protected later; for now add optional auth if needed.
 // Frontend should call the gateway e.g. POST /api/execute/room/:roomId/start
 // =============================================================================
-
-router.post(
-  "/execute/room/:roomId/start",
-  async (req: Request, res: Response) => {
-    await serviceProxy.proxyRequest(
-      "execution",
-      `/execute/room/${encodeURIComponent(req.params.roomId)}/start`,
-      req,
-      res
-    );
-  }
-);
-
-router.post(
-  "/execute/room/:roomId/exec",
-  async (req: Request, res: Response) => {
-    await serviceProxy.proxyRequest(
-      "execution",
-      `/execute/room/${encodeURIComponent(req.params.roomId)}/exec`,
-      req,
-      res
-    );
-  }
-);
-
-router.post(
-  "/execute/room/:roomId/stop",
-  async (req: Request, res: Response) => {
-    await serviceProxy.proxyRequest(
-      "execution",
-      `/execute/room/${encodeURIComponent(req.params.roomId)}/stop`,
-      req,
-      res
-    );
-  }
-);
-
+router.post("/execute/room/:roomId/start", async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("execution", `/execute/room/${encodeURIComponent(req.params.roomId)}/start`, req, res);
+});
+router.post("/execute/room/:roomId/exec", async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("execution", `/execute/room/${encodeURIComponent(req.params.roomId)}/exec`, req, res);
+});
+router.post("/execute/room/:roomId/stop", async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("execution", `/execute/room/${encodeURIComponent(req.params.roomId)}/stop`, req, res);
+});
 // =============================================================================
 // ROOM MANAGEMENT ROUTES
 // All room routes are protected and require authentication
 // =============================================================================
-
 /**
  * @swagger
  * /api/rooms:
@@ -148,10 +119,9 @@ router.post(
  *       401:
  *         description: Unauthorized - Invalid or missing JWT token
  */
-router.post("/rooms", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest("core", "/rooms", req, res);
+router.post("/rooms", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", "/rooms", req, res);
 });
-
 /**
  * @swagger
  * /api/rooms:
@@ -227,10 +197,9 @@ router.post("/rooms", verifySupabaseJWT, async (req, res) => {
  *       401:
  *         description: Unauthorized - Invalid or missing JWT token
  */
-router.get("/rooms", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest("core", "/rooms", req, res);
+router.get("/rooms", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", "/rooms", req, res);
 });
-
 /**
  * @swagger
  * /api/rooms/join:
@@ -364,10 +333,9 @@ router.get("/rooms", verifySupabaseJWT, async (req, res) => {
  *                   type: string
  *                   example: "You are already a member of this room"
  */
-router.post("/rooms/join", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest("core", "/rooms/join", req, res);
+router.post("/rooms/join", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", "/rooms/join", req, res);
 });
-
 /**
  * @swagger
  * /api/rooms/{id}:
@@ -392,10 +360,9 @@ router.post("/rooms/join", verifySupabaseJWT, async (req, res) => {
  *       404:
  *         description: Room not found
  */
-router.get("/rooms/:id", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest("core", `/rooms/${req.params.id}`, req, res);
+router.get("/rooms/:id", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", `/rooms/${req.params.id}`, req, res);
 });
-
 /**
  * @swagger
  * /api/rooms/{id}/join:
@@ -493,15 +460,9 @@ router.get("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  *                   type: string
  *                   example: "You are already a member of this room"
  */
-router.post("/rooms/:id/join", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "core",
-    `/rooms/${req.params.id}/join`,
-    req,
-    res
-  );
+router.post("/rooms/:id/join", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", `/rooms/${req.params.id}/join`, req, res);
 });
-
 /**
  * @swagger
  * /api/rooms/{id}/leave:
@@ -537,15 +498,9 @@ router.post("/rooms/:id/join", verifySupabaseJWT, async (req, res) => {
  *       404:
  *         description: Room not found
  */
-router.delete("/rooms/:id/leave", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "core",
-    `/rooms/${req.params.id}/leave`,
-    req,
-    res
-  );
+router.delete("/rooms/:id/leave", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", `/rooms/${req.params.id}/leave`, req, res);
 });
-
 /**
  * @swagger
  * /api/rooms/{id}:
@@ -613,15 +568,13 @@ router.delete("/rooms/:id/leave", verifySupabaseJWT, async (req, res) => {
  *                   type: string
  *                   example: "Room not found"
  */
-router.delete("/rooms/:id", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest("core", `/rooms/${req.params.id}`, req, res);
+router.delete("/rooms/:id", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", `/rooms/${req.params.id}`, req, res);
 });
-
 // =============================================================================
 // ROOM ACCESS MANAGEMENT ROUTES
 // Routes for managing email-based access control to rooms
 // =============================================================================
-
 /**
  * @swagger
  * /api/rooms/{id}/access/add:
@@ -710,15 +663,9 @@ router.delete("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  *       409:
  *         description: Email already invited to this room
  */
-router.post("/rooms/:id/access/add", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "core",
-    `/rooms/${req.params.id}/access/add`,
-    req,
-    res
-  );
+router.post("/rooms/:id/access/add", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", `/rooms/${req.params.id}/access/add`, req, res);
 });
-
 /**
  * @swagger
  * /api/rooms/{id}/access/remove:
@@ -769,19 +716,9 @@ router.post("/rooms/:id/access/add", verifySupabaseJWT, async (req, res) => {
  *       404:
  *         description: Room not found
  */
-router.delete(
-  "/rooms/:id/access/remove",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "core",
-      `/rooms/${req.params.id}/access/remove`,
-      req,
-      res
-    );
-  }
-);
-
+router.delete("/rooms/:id/access/remove", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", `/rooms/${req.params.id}/access/remove`, req, res);
+});
 /**
  * @swagger
  * /api/rooms/{id}/access/update:
@@ -855,15 +792,9 @@ router.delete(
  *       404:
  *         description: Email not found in room access list or room not found
  */
-router.put("/rooms/:id/access/update", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "core",
-    `/rooms/${req.params.id}/access/update`,
-    req,
-    res
-  );
+router.put("/rooms/:id/access/update", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", `/rooms/${req.params.id}/access/update`, req, res);
 });
-
 /**
  * @swagger
  * /api/rooms/{id}/access:
@@ -925,20 +856,13 @@ router.put("/rooms/:id/access/update", verifySupabaseJWT, async (req, res) => {
  *       404:
  *         description: Room not found
  */
-router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "core",
-    `/rooms/${req.params.id}/access`,
-    req,
-    res
-  );
+router.get("/rooms/:id/access", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", `/rooms/${req.params.id}/access`, req, res);
 });
-
 // =============================================================================
 // REALTIME COLLABORATION ENDPOINTS
 // Proxied to Collaboration Service
 // =============================================================================
-
 /**
  * @swagger
  * /api/collaboration/health:
@@ -972,14 +896,8 @@ router.get("/rooms/:id/access", verifySupabaseJWT, async (req, res) => {
  *         description: Collaboration service unavailable
  */
 router.get("/collaboration/health", async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "collaboration",
-    "/api/collaboration/health",
-    req,
-    res
-  );
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", "/api/collaboration/health", req, res);
 });
-
 /**
  * @swagger
  * /api/collaboration/rooms/{roomId}/info:
@@ -1025,19 +943,9 @@ router.get("/collaboration/health", async (req, res) => {
  *       503:
  *         description: Collaboration service unavailable
  */
-router.get(
-  "/collaboration/rooms/:roomId/info",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/rooms/${req.params.roomId}/info`,
-      req,
-      res
-    );
-  }
-);
-
+router.get("/collaboration/rooms/:roomId/info", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/rooms/${req.params.roomId}/info`, req, res);
+});
 /**
  * @swagger
  * /api/collaboration/rooms/{roomId}/stats:
@@ -1078,19 +986,9 @@ router.get(
  *       503:
  *         description: Collaboration service unavailable
  */
-router.get(
-  "/collaboration/rooms/:roomId/stats",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/rooms/${req.params.roomId}/stats`,
-      req,
-      res
-    );
-  }
-);
-
+router.get("/collaboration/rooms/:roomId/stats", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/rooms/${req.params.roomId}/stats`, req, res);
+});
 /**
  * @swagger
  * /api/collaboration/rooms/{roomId}/broadcast:
@@ -1150,24 +1048,13 @@ router.get(
  *       503:
  *         description: Collaboration service unavailable
  */
-router.post(
-  "/collaboration/rooms/:roomId/broadcast",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/rooms/${req.params.roomId}/broadcast`,
-      req,
-      res
-    );
-  }
-);
-
+router.post("/collaboration/rooms/:roomId/broadcast", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/rooms/${req.params.roomId}/broadcast`, req, res);
+});
 // =============================================================================
 // NOTEBOOK COLLABORATION ROUTES
 // Proxied to Collaboration Service
 // =============================================================================
-
 /**
  * @swagger
  * /api/collaboration/rooms/{roomId}/notebooks:
@@ -1189,14 +1076,8 @@ router.post(
  *         description: Collaboration service unavailable
  */
 router.get("/collaboration/rooms/:roomId/notebooks", async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "collaboration",
-    `/api/collaboration/rooms/${req.params.roomId}/notebooks`,
-    req,
-    res
-  );
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/rooms/${req.params.roomId}/notebooks`, req, res);
 });
-
 /**
  * @swagger
  * /api/collaboration/rooms/{roomId}/notebooks:
@@ -1236,19 +1117,9 @@ router.get("/collaboration/rooms/:roomId/notebooks", async (req, res) => {
  *       503:
  *         description: Collaboration service unavailable
  */
-router.post(
-  "/collaboration/rooms/:roomId/notebooks",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/rooms/${req.params.roomId}/notebooks`,
-      req,
-      res
-    );
-  }
-);
-
+router.post("/collaboration/rooms/:roomId/notebooks", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/rooms/${req.params.roomId}/notebooks`, req, res);
+});
 /**
  * @swagger
  * /api/collaboration/notebooks/{notebookId}:
@@ -1290,19 +1161,9 @@ router.post(
  *       503:
  *         description: Collaboration service unavailable
  */
-router.put(
-  "/collaboration/notebooks/:notebookId",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/notebooks/${req.params.notebookId}`,
-      req,
-      res
-    );
-  }
-);
-
+router.put("/collaboration/notebooks/:notebookId", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/notebooks/${req.params.notebookId}`, req, res);
+});
 /**
  * @swagger
  * /api/collaboration/notebooks/{notebookId}:
@@ -1329,19 +1190,9 @@ router.put(
  *       503:
  *         description: Collaboration service unavailable
  */
-router.delete(
-  "/collaboration/notebooks/:notebookId",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/notebooks/${req.params.notebookId}`,
-      req,
-      res
-    );
-  }
-);
-
+router.delete("/collaboration/notebooks/:notebookId", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/notebooks/${req.params.notebookId}`, req, res);
+});
 /**
  * @swagger
  * /api/collaboration/notebooks/{notebookId}/blocks:
@@ -1363,14 +1214,8 @@ router.delete(
  *         description: Collaboration service unavailable
  */
 router.get("/collaboration/notebooks/:notebookId/blocks", async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "collaboration",
-    `/api/collaboration/notebooks/${req.params.notebookId}/blocks`,
-    req,
-    res
-  );
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/notebooks/${req.params.notebookId}/blocks`, req, res);
 });
-
 /**
  * @swagger
  * /api/collaboration/notebooks/{notebookId}/blocks:
@@ -1420,19 +1265,9 @@ router.get("/collaboration/notebooks/:notebookId/blocks", async (req, res) => {
  *       503:
  *         description: Collaboration service unavailable
  */
-router.post(
-  "/collaboration/notebooks/:notebookId/blocks",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/notebooks/${req.params.notebookId}/blocks`,
-      req,
-      res
-    );
-  }
-);
-
+router.post("/collaboration/notebooks/:notebookId/blocks", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/notebooks/${req.params.notebookId}/blocks`, req, res);
+});
 /**
  * @swagger
  * /api/collaboration/notebooks/{notebookId}/blocks/{blockId}:
@@ -1465,19 +1300,9 @@ router.post(
  *       503:
  *         description: Collaboration service unavailable
  */
-router.delete(
-  "/collaboration/notebooks/:notebookId/blocks/:blockId",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/notebooks/${req.params.notebookId}/blocks/${req.params.blockId}`,
-      req,
-      res
-    );
-  }
-);
-
+router.delete("/collaboration/notebooks/:notebookId/blocks/:blockId", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/notebooks/${req.params.notebookId}/blocks/${req.params.blockId}`, req, res);
+});
 /**
  * @swagger
  * /api/collaboration/notebooks/{notebookId}/blocks/{blockId}/position:
@@ -1525,19 +1350,9 @@ router.delete(
  *       503:
  *         description: Collaboration service unavailable
  */
-router.put(
-  "/collaboration/notebooks/:notebookId/blocks/:blockId/position",
-  verifySupabaseJWT,
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/notebooks/${req.params.notebookId}/blocks/${req.params.blockId}/position`,
-      req,
-      res
-    );
-  }
-);
-
+router.put("/collaboration/notebooks/:notebookId/blocks/:blockId/position", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/notebooks/${req.params.notebookId}/blocks/${req.params.blockId}/position`, req, res);
+});
 /**
  * @swagger
  * /api/collaboration/notebooks/{notebookId}/blocks/{blockId}/content:
@@ -1566,18 +1381,9 @@ router.put(
  *       503:
  *         description: Collaboration service unavailable
  */
-router.get(
-  "/collaboration/notebooks/:notebookId/blocks/:blockId/content",
-  async (req, res) => {
-    await serviceProxy.proxyRequest(
-      "collaboration",
-      `/api/collaboration/notebooks/${req.params.notebookId}/blocks/${req.params.blockId}/content`,
-      req,
-      res
-    );
-  }
-);
-
+router.get("/collaboration/notebooks/:notebookId/blocks/:blockId/content", async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/notebooks/${req.params.notebookId}/blocks/${req.params.blockId}/content`, req, res);
+});
 /**
  * @swagger
  * /api/collaboration/notebooks/{notebookId}/state:
@@ -1601,14 +1407,8 @@ router.get(
  *         description: Collaboration service unavailable
  */
 router.get("/collaboration/notebooks/:notebookId/state", async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "collaboration",
-    `/api/collaboration/notebooks/${req.params.notebookId}/state`,
-    req,
-    res
-  );
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/notebooks/${req.params.notebookId}/state`, req, res);
 });
-
 /**
  * @swagger
  * /api/collaboration/notebooks/{notebookId}/load:
@@ -1632,19 +1432,12 @@ router.get("/collaboration/notebooks/:notebookId/state", async (req, res) => {
  *         description: Collaboration service unavailable
  */
 router.post("/collaboration/notebooks/:notebookId/load", async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "collaboration",
-    `/api/collaboration/notebooks/${req.params.notebookId}/load`,
-    req,
-    res
-  );
+    await proxy_service_1.serviceProxy.proxyRequest("collaboration", `/api/collaboration/notebooks/${req.params.notebookId}/load`, req, res);
 });
-
 // =============================================================================
 // ROOM MANAGEMENT ROUTES
 // Proxied to Core Service
 // =============================================================================
-
 /**
  * @swagger
  * /api/rooms/{id}/participants:
@@ -1680,19 +1473,12 @@ router.post("/collaboration/notebooks/:notebookId/load", async (req, res) => {
  *       500:
  *         description: Internal server error
  */
-router.get("/rooms/:id/participants", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest(
-    "core",
-    `/rooms/${req.params.id}/participants`,
-    req,
-    res
-  );
+router.get("/rooms/:id/participants", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", `/rooms/${req.params.id}/participants`, req, res);
 });
-
 // =============================================================================
 // USER PROFILE ROUTES
 // =============================================================================
-
 /**
  * @swagger
  * /api/users/profile:
@@ -1734,24 +1520,17 @@ router.get("/rooms/:id/participants", verifySupabaseJWT, async (req, res) => {
  *       500:
  *         description: Internal server error
  */
-router.get("/users/profile", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest("core", "/users/profile", req, res);
+router.get("/users/profile", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest("core", "/users/profile", req, res);
 });
-
 // AI chat proxy
-router.post(
-  "/ai/chat",
-  verifySupabaseJWT,
-  async (req: Request, res: Response) => {
-    await serviceProxy.proxyRequest("core", "/ai/chat", req, res);
-  }
-);
-
+router.post('/ai/chat', auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    await proxy_service_1.serviceProxy.proxyRequest('core', '/ai/chat', req, res);
+});
 // =============================================================================
 // FUTURE MICROSERVICES
 // Add routes for other services here (AI Engine, etc.)
 // =============================================================================
-
 /**
  * @swagger
  * /api/ai:
@@ -1765,12 +1544,11 @@ router.post(
  *       501:
  *         description: Not implemented yet
  */
-router.all("/ai*", verifySupabaseJWT, async (req, res) => {
-  res.status(501).json({
-    error: "Not implemented",
-    message: "AI Engine service is coming soon",
-    plannedFeatures: ["Code suggestions", "Error detection", "Code completion"],
-  });
+router.all("/ai*", auth_middleware_1.verifySupabaseJWT, async (req, res) => {
+    res.status(501).json({
+        error: "Not implemented",
+        message: "AI Engine service is coming soon",
+        plannedFeatures: ["Code suggestions", "Error detection", "Code completion"],
+    });
 });
-
-export default router;
+exports.default = router;
