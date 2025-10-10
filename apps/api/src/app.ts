@@ -41,6 +41,15 @@ app.get("/", (req, res) => {
 // Health routes
 app.use("/", healthRoutes);
 
+// Version control health check
+app.get("/health/version", (req, res) => {
+  res.json({
+    version: "1.0.0",
+    commitHash: process.env.COMMIT_HASH || "unknown",
+    branch: process.env.BRANCH_NAME || "unknown",
+  });
+});
+
 // API routes (protected)
 app.use("/api", gatewayRoutes);
 
@@ -53,6 +62,7 @@ app.use("*", (req, res) => {
       "GET /",
       "GET /health",
       "GET /health/services",
+      "GET /health/version",
       "GET /api-docs",
       "POST /api/rooms",
       "GET /api/rooms",
@@ -83,4 +93,5 @@ app.listen(PORT, () => {
   console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
   console.log(`❤️  Health Check: http://localhost:${PORT}/health`);
   console.log(`🔌 Chat WebSocket: Connect directly to ws://localhost:5002`);
+  console.log(`🔗 Version Control: Connected directly to ws://localhost:5000`);
 });

@@ -8,6 +8,6 @@
     "skipLibCheck": true,
     "typeRoots": ["./node_modules/@types", "./tests"]
   },
-  "include": ["src/**/*", "tests/**/*"],
+  "include": ["src/**/*", "tests/**/*", "../version-control-service/src/middleware/roleCheck.middleware.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -1727,4 +1727,155 @@ router.all("/ai*", verifySupabaseJWT, async (req, res) => {
   });
 });
 
+// =============================================================================
+// VERSION CONTROL ROUTES
+// Proxied to Version Control Service
+// =============================================================================
+
+/**
+ * @swagger
+ * /api/version-control/commits:
+ *   get:
+ *     summary: Get all commits
+ *     description: Retrieve a list of all commits for a specific project or repository.
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: projectId
+ *         in: query
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Project or repository ID
+ *     responses:
+ *       200:
+ *         description: List of commits retrieved successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Project or repository not found
+ */
+router.get("/version-control/commits", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("version-control", "/commits", req, res);
+});
+
+/**
+ * @swagger
+ * /api/version-control/commits:
+ *   post:
+ *     summary: Create a new commit
+ *     description: Add a new commit to the version control system.
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - message
+ *               - changes
+ *             properties:
+ *               message:
+ *                 type: string
+ *                 description: Commit message
+ *                 example: "Fixed a bug in the authentication flow"
+ *               changes:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     file:
+ *                       type: string
+ *                       description: File path
+ *                     diff:
+ *                       type: string
+ *                       description: Changes made to the file
+ *     responses:
+ *       201:
+ *         description: Commit created successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/version-control/commits", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("version-control", "/commits", req, res);
+});
+
+/**
+ * @swagger
+ * /api/version-control/milestones:
+ *   get:
+ *     summary: Get all milestones
+ *     description: Retrieve a list of all milestones for a specific project.
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: projectId
+ *         in: query
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Project ID
+ *     responses:
+ *       200:
+ *         description: List of milestones retrieved successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Project not found
+ */
+router.get("/version-control/milestones", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("version-control", "/milestones", req, res);
+});
+
+/**
+ * @swagger
+ * /api/version-control/milestones:
+ *   post:
+ *     summary: Create a new milestone
+ *     description: Add a new milestone to the version control system.
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *               - dueDate
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 description: Milestone title
+ *                 example: "Version 1.0 Release"
+ *               dueDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Due date for the milestone
+ *                 example: "2023-12-31"
+ *     responses:
+ *       201:
+ *         description: Milestone created successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/version-control/milestones", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("version-control", "/milestones", req, res);
+});
+
 export default router;
