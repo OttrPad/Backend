@@ -10,6 +10,38 @@ const router: Router = Router();
 // Frontend should call the gateway e.g. POST /api/execute/room/:roomId/start
 // =============================================================================
 
+/**
+ * @swagger
+ * tags:
+ *   - name: Execution
+ *     description: Code execution endpoints
+ */
+
+/**
+ * @swagger
+ * /api/execute/room/{roomId}/start:
+ *   post:
+ *     summary: Start (or warm) execution container for a room
+ *     description: Idempotent. Returns 200 even if the container is already running.
+ *     tags: [Execution]
+ *     parameters:
+ *       - in: path
+ *         name: roomId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Container is running or already started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: started
+ */
 router.post(
   "/execute/room/:roomId/start",
   async (req: Request, res: Response) => {
@@ -22,6 +54,46 @@ router.post(
   }
 );
 
+/**
+ * @swagger
+ * /api/execute/room/{roomId}/exec:
+ *   post:
+ *     summary: Execute code in a room
+ *     description: Sends a code snippet to be executed. In stateful mode, variables persist between calls for the same room.
+ *     tags: [Execution]
+ *     parameters:
+ *       - in: path
+ *         name: roomId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [code]
+ *             properties:
+ *               code:
+ *                 type: string
+ *                 example: "print('hello from room')"
+ *     responses:
+ *       200:
+ *         description: Execution succeeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 output:
+ *                   type: string
+ *                   example: "hello from room\n"
+ *       400:
+ *         description: Bad request (missing code or room not running)
+ *       500:
+ *         description: Execution failed
+ */
 router.post(
   "/execute/room/:roomId/exec",
   async (req: Request, res: Response) => {
@@ -34,6 +106,31 @@ router.post(
   }
 );
 
+/**
+ * @swagger
+ * /api/execute/room/{roomId}/stop:
+ *   post:
+ *     summary: Stop the execution container for a room
+ *     description: Idempotent. Returns 200 even if the container is already stopped or absent.
+ *     tags: [Execution]
+ *     parameters:
+ *       - in: path
+ *         name: roomId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Container stopped or already stopped
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: stopped
+ */
 router.post(
   "/execute/room/:roomId/stop",
   async (req: Request, res: Response) => {
@@ -50,6 +147,40 @@ router.post(
 // ROOM MANAGEMENT ROUTES
 // All room routes are protected and require authentication
 // =============================================================================
+
+// =============================================================================
+// WORKSPACES ROUTES (starter templates)
+// =============================================================================
+
+/**
+ * @swagger
+ * /api/workspaces:
+ *   get:
+ *     summary: List available starter workspaces/templates
+ *     description: Returns a paginated list of workspaces that users can choose when creating a room.
+ *     tags: [Workspaces]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *     responses:
+ *       200:
+ *         description: Workspaces list
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/workspaces", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("core", `/workspaces`, req, res);
+});
 
 /**
  * @swagger

@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import roomRoutes from "./routes/room.routes";
+import workspaceRoutes from "./routes/workspace.routes";
 import userRoutes from "./routes/user.routes";
 import aiRoutes from "./routes/ai.routes";
 import { requireGatewayAuth } from "./middleware/service-auth.middleware";
@@ -27,6 +28,7 @@ app.use(requireGatewayAuth);
 
 // Protected routes
 app.use("/rooms", roomRoutes);
+app.use("/workspaces", workspaceRoutes);
 app.use("/users", userRoutes);
 app.use("/ai", aiRoutes); // POST /ai/chat
 
