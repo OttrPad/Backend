@@ -22,3 +22,14 @@ export const getWorkspaces = async (limit: number = 50, offset: number = 0) => {
     hasMore: count ? offset + limit < count : false,
   };
 };
+
+export const getWorkspaceById = async (id: number) => {
+  const { data, error } = await supabase
+    .from("Workspaces")
+    .select("workspace_id, name, requirements")
+    .eq("workspace_id", id)
+    .single();
+
+  if (error && error.code !== "PGRST116") throw error;
+  return (data as Workspace) || null;
+};

@@ -184,6 +184,67 @@ router.get("/workspaces", verifySupabaseJWT, async (req, res) => {
 
 /**
  * @swagger
+ * /api/workspaces/{id}:
+ *   get:
+ *     summary: Get a workspace by id
+ *     description: Returns details of a specific workspace/template.
+ *     tags: [Workspaces]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Numeric workspace ID
+ *     responses:
+ *       200:
+ *         description: Workspace found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Workspace retrieved successfully"
+ *                 workspace:
+ *                   type: object
+ *                   properties:
+ *                     workspace_id:
+ *                       type: integer
+ *                     name:
+ *                       type: string
+ *                     requirements:
+ *                       type: string
+ *                       nullable: true
+ *       400:
+ *         description: Invalid workspace id
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Valid workspace id is required"
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Workspace not found
+ */
+router.get("/workspaces/:id", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest(
+    "core",
+    `/workspaces/${encodeURIComponent(req.params.id)}`,
+    req,
+    res
+  );
+});
+
+/**
+ * @swagger
  * /api/rooms:
  *   post:
  *     summary: Create a new room
@@ -199,6 +260,7 @@ router.get("/workspaces", verifySupabaseJWT, async (req, res) => {
  *             type: object
  *             required:
  *               - name
+ *               - workspace_id
  *             properties:
  *               name:
  *                 type: string
@@ -208,6 +270,10 @@ router.get("/workspaces", verifySupabaseJWT, async (req, res) => {
  *                 type: string
  *                 description: Optional room description
  *                 example: "A collaborative coding session for our project"
+ *               workspace_id:
+ *                 type: integer
+ *                 description: ID of the workspace/template to base the room on. Obtain from GET /api/workspaces
+ *                 example: 1
  *     responses:
  *       201:
  *         description: Room created successfully
@@ -231,6 +297,9 @@ router.get("/workspaces", verifySupabaseJWT, async (req, res) => {
  *                     description:
  *                       type: string
  *                       description: Room description
+ *                     workspace_id:
+ *                       type: integer
+ *                       description: Associated workspace/template ID
  *                     room_code:
  *                       type: string
  *                       pattern: '^[a-z0-9]{3}-[a-z0-9]{3}-[a-z0-9]{3}$'
@@ -263,11 +332,17 @@ router.get("/workspaces", verifySupabaseJWT, async (req, res) => {
  *                     - "User authentication required"
  *                     - "You already created a room with this name"
  *                     - "Room with this name already exists"
+ *                     - "workspace_id is required"
+ *                     - "Invalid workspace_id"
  *             examples:
  *               missing_name:
  *                 summary: Missing room name
  *                 value:
  *                   error: "Room name is required"
+ *               missing_workspace_id:
+ *                 summary: Missing workspace_id
+ *                 value:
+ *                   error: "workspace_id is required"
  *               duplicate_by_same_user:
  *                 summary: Same user trying to create duplicate room
  *                 value:
@@ -276,6 +351,10 @@ router.get("/workspaces", verifySupabaseJWT, async (req, res) => {
  *                 summary: Missing authentication
  *                 value:
  *                   error: "User authentication required"
+ *               invalid_workspace:
+ *                 summary: Invalid workspace_id
+ *                 value:
+ *                   error: "Invalid workspace_id"
  *       401:
  *         description: Unauthorized - Invalid or missing JWT token
  */
@@ -327,6 +406,9 @@ router.post("/rooms", verifySupabaseJWT, async (req, res) => {
  *                         type: string
  *                       description:
  *                         type: string
+ *                       workspace_id:
+ *                         type: string
+ *                         format: uuid
  *                       room_code:
  *                         type: string
  *                       created_by:
@@ -409,6 +491,9 @@ router.get("/rooms", verifySupabaseJWT, async (req, res) => {
  *                       type: string
  *                     name:
  *                       type: string
+ *                     workspace_id:
+ *                       type: string
+ *                       format: uuid
  *                     room_code:
  *                       type: string
  *                 user:
@@ -567,6 +652,9 @@ router.get("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  *                       type: string
  *                     name:
  *                       type: string
+ *                     workspace_id:
+ *                       type: string
+ *                       format: uuid
  *                     room_code:
  *                       type: string
  *                 user:
