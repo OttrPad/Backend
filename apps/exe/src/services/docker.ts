@@ -114,7 +114,9 @@ export async function startContainer(roomId: string) {
       },
     });
     await container.start();
-    log.info(`Started container ${name} (${EXE_STATEFUL ? "stateful" : "stateless"})`);
+    log.info(
+      `Started container ${name} (${EXE_STATEFUL ? "stateful" : "stateless"})`
+    );
     roomContainers[roomId] = container;
     markActivity(roomId);
     startReaper();
@@ -205,7 +207,13 @@ export async function execCode(roomId: string, code: string): Promise<string> {
 
   async function runAgent(
     pyCode: string
-  ): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string; traceback?: string } | null> {
+  ): Promise<{
+    ok: boolean;
+    stdout: string;
+    stderr: string;
+    error?: string;
+    traceback?: string;
+  } | null> {
     // Send code to the Unix socket using a small Python client. Encode payload as base64
     // to avoid quoting issues.
     const b64 = Buffer.from(pyCode, "utf8").toString("base64");
@@ -228,7 +236,9 @@ export async function execCode(roomId: string, code: string): Promise<string> {
       return JSON.parse(output);
     } catch (e) {
       // Agent may not be running or returned malformed data
-      log.warn(`stateful.agent.parse_failed room=${roomId}`, { output: output?.slice(0, 200) });
+      log.warn(`stateful.agent.parse_failed room=${roomId}`, {
+        output: output?.slice(0, 200),
+      });
       return null;
     }
   }
@@ -257,9 +267,13 @@ export async function execCode(roomId: string, code: string): Promise<string> {
         throw new Error(resp.error || "Execution error in stateful agent");
       }
       // If resp is null, fall through to stateless fallback
-      log.warn(`stateful.agent.unavailable room=${roomId} -> falling back to stateless`);
+      log.warn(
+        `stateful.agent.unavailable room=${roomId} -> falling back to stateless`
+      );
     } catch (e) {
-      log.warn(`stateful.exec.failed room=${roomId} -> falling back`, { error: (e as any)?.message || e });
+      log.warn(`stateful.exec.failed room=${roomId} -> falling back`, {
+        error: (e as any)?.message || e,
+      });
     }
   }
 
