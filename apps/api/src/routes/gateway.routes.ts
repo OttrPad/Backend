@@ -143,6 +143,54 @@ router.post(
   }
 );
 
+/**
+ * @swagger
+ * /api/execute/room/{roomId}/status:
+ *   get:
+ *     summary: Get execution setup status for a room
+ *     description: Returns whether the environment (venv) is building/ready and container status, so the frontend can show setup progress.
+ *     tags: [Execution]
+ *     parameters:
+ *       - in: path
+ *         name: roomId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Current status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 roomId:
+ *                   type: string
+ *                 venv:
+ *                   type: string
+ *                   enum: [missing, building, ready, unknown]
+ *                 container:
+ *                   type: string
+ *                   enum: [running, stopped, absent]
+ *                 workspaceId:
+ *                   type: integer
+ *                   nullable: true
+ *                 requirementsHash:
+ *                   type: string
+ *                   nullable: true
+ */
+router.get(
+  "/execute/room/:roomId/status",
+  async (req: Request, res: Response) => {
+    await serviceProxy.proxyRequest(
+      "execution",
+      `/execute/room/${encodeURIComponent(req.params.roomId)}/status`,
+      req,
+      res
+    );
+  }
+);
+
 // =============================================================================
 // ROOM MANAGEMENT ROUTES
 // All room routes are protected and require authentication

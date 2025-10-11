@@ -1,5 +1,6 @@
 import express from "express";
 import executeRoute from "./routes/execute";
+import { prewarmAllVenvs } from "./services/docker";
 import { log } from "@ottrpad/logger";
 
 const app: express.Express = express();
@@ -21,9 +22,25 @@ app.use(
   }
 );
 
-const port = process.env.PORT || 4004;
+// Prefer a service-specific port env var to avoid collisions with a shared PORT in the monorepo
+const port = process.env.EXE_PORT || process.env.PORT || 4004;
 if (require.main === module) {
-  app.listen(port, () => log.info(`exe service listening on :${port}`));
+  app.listen(port, () => {
+    log.info(`exe service listening on :${port}`);
+    // Optional prewarm controlled by env
+    const doPrewarm = /^(1|true|all)$/i.test(
+      process.env.EXE_VENV_PREWARM || ""
+    );
+    const concurrency =
+      Number(process.env.EXE_VENV_BUILDER_CONCURRENCY || 2) || 2;
+    if (doPrewarm) {
+      setTimeout(() => {
+        prewarmAllVenvs(concurrency).catch((e: any) =>
+          log.warn("prewarm.error", { error: e?.message || e })
+        );
+      }, 1000).unref();
+    }
+  });
 }
 
 export default app;

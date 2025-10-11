@@ -145,6 +145,29 @@ export const getRoomByIdHandler = async (req: Request, res: Response) => {
   }
 };
 
+export const getRoomByCodeHandler = async (req: Request, res: Response) => {
+  try {
+    const { code } = req.params;
+    if (!code) return res.status(400).json({ error: "Room code is required" });
+
+    const room = await findRoomByCode(code);
+    if (!room) {
+      return res.status(404).json({ error: "Room not found with this code" });
+    }
+
+    return res.status(200).json({
+      message: "Room details retrieved successfully",
+      room,
+    });
+  } catch (err: any) {
+    console.error("Error fetching room by code:", err.message || err);
+    res.status(500).json({
+      error: "Failed to fetch room by code",
+      details: err.message || err,
+    });
+  }
+};
+
 export const joinRoomByCodeHandler = async (req: Request, res: Response) => {
   try {
     const { room_code } = req.body;

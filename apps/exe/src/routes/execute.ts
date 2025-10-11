@@ -1,5 +1,10 @@
 import { Router, Request, Response } from "express";
-import { startContainer, execCode, stopContainer } from "../services/docker";
+import {
+  startContainer,
+  execCode,
+  stopContainer,
+  getRoomStatus,
+} from "../services/docker";
 import { log } from "@ottrpad/logger";
 
 const router: ReturnType<typeof Router> = Router();
@@ -37,6 +42,20 @@ router.post("/room/:roomId/stop", async (req: Request, res: Response) => {
     delete rooms[roomId];
   }
   res.json({ status: "stopped" });
+});
+
+// Status endpoint to let frontend know if venv is building/ready
+router.get("/room/:roomId/status", async (req: Request, res: Response) => {
+  const { roomId } = req.params as { roomId: string };
+  try {
+    const status = await getRoomStatus(roomId);
+    res.json({
+      roomId,
+      ...status,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: "status_failed", message: e?.message || e });
+  }
 });
 
 export default router;

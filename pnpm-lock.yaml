@@ -267,6 +267,9 @@ importers:
       '@types/dockerode':
         specifier: ^3.3.44
         version: 3.3.44
+      axios:
+        specifier: ^1.7.9
+        version: 1.11.0
       dockerode:
         specifier: ^4.0.9
         version: 4.0.9

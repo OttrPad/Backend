@@ -1,6 +1,8 @@
 import Docker from "dockerode";
 import stream from "stream";
 import { log } from "@ottrpad/logger";
+import axios from "axios";
+import crypto from "crypto";
 
 // Feature flag: enable stateful Python sessions (single interpreter per room)
 const EXE_STATEFUL = /^(1|true)$/i.test(process.env.EXE_STATEFUL || "");
@@ -21,9 +23,328 @@ const PY_AGENT_SCRIPT = [
 
 const docker = new Docker();
 const roomContainers: Record<string, Docker.Container> = {};
+const roomMeta: Record<
+  string,
+  { workspaceId: number; reqHash: string; allowedPackages: string[] }
+> = {};
 const lastActivity: Record<string, number> = {}; // epoch ms of last activity per room
 const IDLE_MS = 5 * 60 * 1000; // 5 minutes
 let reaperStarted = false;
+// Serialize concurrent starts per room to avoid duplicate container create (409 name conflict)
+const startLocks: Record<string, Promise<Docker.Container>> = {};
+
+// Core service URL for internal lookups
+const CORE_URL = process.env.CORE_SERVICE_URL || "http://localhost:3001";
+
+// Build-time image used for both builder and runtime containers
+const BASE_IMAGE = process.env.EXE_VENV_BASE_IMAGE || "python:3.11-slim";
+// Optional: enable a shared pip cache volume to speed up builds across workspaces
+const ENABLE_PIP_CACHE = !/^(0|false)$/i.test(
+  process.env.EXE_VENV_PIP_CACHE || "1"
+);
+const PIP_CACHE_VOLUME =
+  process.env.EXE_VENV_PIP_CACHE_VOLUME || "ottrpad-pip-cache";
+// Optional: allow a mirror/extra index or extra args for pip
+const PIP_INDEX_URL = process.env.EXE_VENV_PIP_INDEX_URL;
+const PIP_EXTRA_INDEX_URL = process.env.EXE_VENV_PIP_EXTRA_INDEX_URL;
+const EXTRA_PIP_ARGS = process.env.EXE_VENV_EXTRA_PIP_ARGS || "";
+const STREAM_BUILD_LOGS = /^(1|true)$/i.test(
+  process.env.EXE_VENV_STREAM_BUILD_LOGS || ""
+);
+
+// Compute a stable hash for requirements content
+function normalizeRequirements(reqText: string): string {
+  if (!reqText) return "";
+  const seen = new Set<string>();
+  const lines = reqText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"))
+    // strip inline comments: package==x  # comment
+    .map((l) => l.replace(/\s+#.*$/, "").trim())
+    // normalize whitespace around specifiers
+    .map((l) => l.replace(/\s+/g, " "))
+    // drop duplicates (exact line equality) to keep hash stable across minor formatting changes
+    .filter((l) => {
+      const key = l;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort();
+  return lines.join("\n");
+}
+
+function requirementsHash(reqText: string): string {
+  const norm = normalizeRequirements(reqText);
+  return crypto
+    .createHash("sha256")
+    .update(norm, "utf8")
+    .digest("hex")
+    .slice(0, 16);
+}
+
+async function fetchWorkspaceForRoom(
+  roomId: string
+): Promise<{ workspaceId: number; requirements: string }> {
+  try {
+    const byIdUrl = `${CORE_URL}/rooms/${encodeURIComponent(roomId)}`;
+    const resp = await axios.get(byIdUrl, {
+      timeout: 10000,
+      headers: {
+        "x-gateway-user-id": "system-exe",
+        "x-gateway-user-email": "system-exe@internal",
+        "x-original-url": `/internal/exe/rooms/${roomId}`,
+      },
+    });
+    if (resp.status !== 200) throw new Error(`core responded ${resp.status}`);
+    const room = resp.data?.room;
+    const workspaceId = room?.workspace_id;
+    if (!workspaceId && workspaceId !== 0)
+      throw new Error("room has no workspace_id");
+    const wsResp = await axios.get(`${CORE_URL}/workspaces/${workspaceId}`, {
+      timeout: 10000,
+      headers: {
+        "x-gateway-user-id": "system-exe",
+        "x-gateway-user-email": "system-exe@internal",
+        "x-original-url": `/internal/exe/workspaces/${workspaceId}`,
+      },
+    });
+    if (wsResp.status !== 200)
+      throw new Error(`core ws responded ${wsResp.status}`);
+    const requirements = wsResp.data?.workspace?.requirements || "";
+    return {
+      workspaceId: Number(workspaceId),
+      requirements: String(requirements || ""),
+    };
+  } catch (e: any) {
+    // Fall back: some callers may pass room code. Try lookup by code.
+    try {
+      const byCodeUrl = `${CORE_URL}/rooms/code/${encodeURIComponent(roomId)}`;
+      const codeResp = await axios.get(byCodeUrl, {
+        timeout: 10000,
+        headers: {
+          "x-gateway-user-id": "system-exe",
+          "x-gateway-user-email": "system-exe@internal",
+          "x-original-url": `/internal/exe/rooms/code/${roomId}`,
+        },
+      });
+      if (codeResp.status !== 200)
+        throw new Error(`core responded ${codeResp.status}`);
+      const room = codeResp.data?.room;
+      const workspaceId = room?.workspace_id;
+      if (!workspaceId && workspaceId !== 0)
+        throw new Error("room has no workspace_id");
+      const wsResp = await axios.get(`${CORE_URL}/workspaces/${workspaceId}`, {
+        timeout: 10000,
+        headers: {
+          "x-gateway-user-id": "system-exe",
+          "x-gateway-user-email": "system-exe@internal",
+          "x-original-url": `/internal/exe/workspaces/${workspaceId}`,
+        },
+      });
+      if (wsResp.status !== 200)
+        throw new Error(`core ws responded ${wsResp.status}`);
+      const requirements = wsResp.data?.workspace?.requirements || "";
+      return {
+        workspaceId: Number(workspaceId),
+        requirements: String(requirements || ""),
+      };
+    } catch (inner: any) {
+      log.error("workspace.lookup.failed", {
+        roomId,
+        error: inner?.message || e?.message || e,
+      });
+      throw inner || e;
+    }
+  }
+}
+
+async function ensureVenvVolume(
+  workspaceId: number,
+  reqText: string
+): Promise<{ volumeName: string; hash: string }> {
+  const hash = requirementsHash(reqText);
+  const volumeName = `ottrpad-venv-${hash}`;
+  // Try to create volume (idempotent: will throw if exists)
+  try {
+    await docker.createVolume({
+      Name: volumeName,
+      Labels: {
+        "ottrpad.kind": "venv",
+        "ottrpad.requirements.hash": hash,
+        "ottrpad.workspace_id": String(workspaceId),
+      },
+    });
+    // Newly created volume: build venv contents
+    log.info("venv.volume.created", { volumeName, hash, workspaceId });
+    await buildVenvInVolume(volumeName, reqText);
+  } catch (e: any) {
+    // If volume exists, proceed; else rethrow
+    const msg = e?.message || String(e);
+    if (!/already exists|409/.test(msg)) {
+      log.error("venv.volume.create_failed", { volumeName, error: msg });
+      throw e;
+    }
+    log.info("venv.volume.exists", { volumeName });
+  }
+  return { volumeName, hash };
+}
+
+async function ensureNamedVolume(name: string) {
+  try {
+    await docker.createVolume({ Name: name });
+    log.info("volume.created", { name });
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    if (!/already exists|409/.test(msg)) {
+      log.warn("volume.ensure_failed", { name, error: msg });
+      throw e;
+    }
+  }
+}
+
+async function buildVenvInVolume(volumeName: string, reqText: string) {
+  // Encode requirements to base64 to write file inside container
+  const b64 = Buffer.from(String(reqText || "")).toString("base64");
+  const pipIndexArgs = [
+    PIP_INDEX_URL ? `--index-url ${PIP_INDEX_URL}` : "",
+    PIP_EXTRA_INDEX_URL ? `--extra-index-url ${PIP_EXTRA_INDEX_URL}` : "",
+    EXTRA_PIP_ARGS?.trim() ? `${EXTRA_PIP_ARGS}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const buildCmd = [
+    "bash",
+    "-lc",
+    [
+      `echo '${b64}' | base64 -d > /tmp/requirements.txt`,
+      "python3 -m venv /opt/venv",
+      // Keep pip cache enabled to leverage shared cache volume
+      "/opt/venv/bin/pip install --upgrade pip",
+      // Install requirements with optional index/mirror config
+      `/opt/venv/bin/pip install ${pipIndexArgs} -r /tmp/requirements.txt`,
+      // Harden: remove pip entrypoints so users cannot invoke pip easily in runtime
+      "rm -f /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.* || true",
+    ].join(" && "),
+  ];
+
+  // Name builder containers deterministically so they are recognizable in Docker UI
+  const builderName = `ottrpad-venv-build-${volumeName}`.replace(
+    /[^a-zA-Z0-9_.-]/g,
+    "-"
+  );
+  // Ensure a shared pip cache volume if enabled
+  let mounts: any[] = [
+    {
+      Target: "/opt/venv",
+      Source: volumeName,
+      Type: "volume",
+      ReadOnly: false,
+    },
+  ];
+  if (ENABLE_PIP_CACHE) {
+    try {
+      await ensureNamedVolume(PIP_CACHE_VOLUME);
+      mounts.push({
+        Target: "/root/.cache/pip",
+        Source: PIP_CACHE_VOLUME,
+        Type: "volume",
+        ReadOnly: false,
+      });
+    } catch (e) {
+      // non-fatal
+    }
+  }
+
+  // Remove any stale builder with the same name
+  try {
+    const stale = await findContainerByName(builderName);
+    if (stale) {
+      try {
+        await stale.remove({ force: true });
+      } catch {}
+    }
+  } catch {}
+
+  const env: string[] = [];
+  if (PIP_INDEX_URL) env.push(`PIP_INDEX_URL=${PIP_INDEX_URL}`);
+  if (PIP_EXTRA_INDEX_URL)
+    env.push(`PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}`);
+
+  const container = await docker.createContainer({
+    Image: BASE_IMAGE,
+    name: builderName,
+    Cmd: buildCmd,
+    Tty: false,
+    OpenStdin: false,
+    HostConfig: {
+      AutoRemove: true,
+      // Use default network for builds to access PyPI
+      Mounts: mounts as any,
+    } as any,
+    Labels: {
+      "ottrpad.kind": "venv-builder",
+      "ottrpad.venv": volumeName,
+    },
+    Env: env,
+  });
+  let logsStream: any | undefined;
+  try {
+    await container.start();
+    // Optionally stream pip logs during build
+    if (STREAM_BUILD_LOGS) {
+      try {
+        const streamObj = await container.logs({
+          follow: true,
+          stdout: true,
+          stderr: true,
+        } as any);
+        const stdout = new stream.PassThrough();
+        const stderr = new stream.PassThrough();
+        (docker as any).modem.demuxStream(streamObj, stdout, stderr);
+        stdout.on("data", (c) =>
+          log.info("venv.build.stdout", {
+            volumeName,
+            chunk: c.toString().slice(0, 400),
+          })
+        );
+        stderr.on("data", (c) =>
+          log.warn("venv.build.stderr", {
+            volumeName,
+            chunk: c.toString().slice(0, 400),
+          })
+        );
+        logsStream = streamObj;
+      } catch (e: any) {
+        log.warn("venv.build.log_attach_failed", {
+          volumeName,
+          error: e?.message || e,
+        });
+      }
+    }
+    // Wait for container to finish
+    await container.wait();
+    log.info("venv.built", { volumeName, builderName });
+  } catch (e: any) {
+    log.error("venv.build_failed", {
+      volumeName,
+      builderName,
+      error: e?.message || e,
+    });
+    throw e;
+  } finally {
+    try {
+      if (logsStream && typeof logsStream.destroy === "function") {
+        logsStream.destroy();
+      }
+    } catch {}
+    try {
+      await container.remove({ force: true });
+    } catch {}
+  }
+}
 
 function markActivity(roomId: string) {
   lastActivity[roomId] = Date.now();
@@ -63,71 +384,245 @@ export async function startContainer(roomId: string) {
     log.info(`Already running container for room ${roomId}`);
     return roomContainers[roomId];
   }
+  if (Object.prototype.hasOwnProperty.call(startLocks, roomId)) {
+    // Another start is in progress; wait for it and return the same container
+    return startLocks[roomId];
+  }
   const name = roomId;
-  try {
-    // If a container with the same name exists (leftover from crash), try to reattach
-    const existing = await findContainerByName(name);
-    if (existing) {
-      const inspect = await existing.inspect();
-      if (!inspect.State.Running) {
-        try {
-          await existing.start();
-          log.info(`Re-started existing container ${name}`);
-        } catch (e) {
-          log.warn(`Failed to start existing container ${name}`, { error: e });
+  startLocks[roomId] = (async () => {
+    try {
+      // Determine workspace and ensure venv
+      const { workspaceId, requirements } = await fetchWorkspaceForRoom(roomId);
+      const { volumeName, hash } = await ensureVenvVolume(
+        workspaceId,
+        requirements
+      );
+      // Prepare allowed packages list from normalized requirements
+      const norm = normalizeRequirements(requirements);
+      const allowedPackages = norm
+        .split(/\n+/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((p) => p.split(/[<>=!~ ]+/)[0].toLowerCase());
+      roomMeta[roomId] = { workspaceId, reqHash: hash, allowedPackages };
+
+      // If a container with the same name exists (leftover from crash), try to reattach
+      const existing = await findContainerByName(name);
+      if (existing) {
+        const inspect = await existing.inspect();
+        // Verify it has the expected venv mount; otherwise recreate
+        const hasVenvMount = Array.isArray((inspect as any).Mounts)
+          ? (inspect as any).Mounts.some(
+              (m: any) =>
+                m.Type === "volume" &&
+                m.Name === volumeName &&
+                m.Destination === "/opt/venv"
+            )
+          : false;
+        if (!inspect.State.Running) {
+          try {
+            await existing.start();
+            log.info(`Re-started existing container ${name}`);
+          } catch (e) {
+            log.warn(`Failed to start existing container ${name}`, {
+              error: e,
+            });
+          }
+        } else {
+          log.info(`Reusing running container ${name}`);
         }
-      } else {
-        log.info(`Reusing running container ${name}`);
+        if (hasVenvMount) {
+          roomContainers[roomId] = existing;
+          markActivity(roomId);
+          startReaper();
+          return existing;
+        } else {
+          log.warn("existing.container.missing_venv_mount - recreating", {
+            roomId,
+            expected: volumeName,
+          });
+          try {
+            await existing.stop({ t: 0 });
+          } catch {}
+          try {
+            await existing.remove({ force: true });
+          } catch {}
+        }
       }
-      roomContainers[roomId] = existing;
+
+      log.info(
+        `Creating container name=${name} image=${BASE_IMAGE} mode=${EXE_STATEFUL ? "stateful" : "stateless"}`,
+        { workspaceId, reqHash: hash }
+      );
+      let container: Docker.Container;
+      try {
+        container = await docker.createContainer({
+          Image: BASE_IMAGE,
+          name,
+          // When stateful mode is enabled, start a Python agent that executes incoming
+          // code snippets over a Unix socket in a shared globals namespace. Otherwise,
+          // start an inert long-running process to keep the container alive.
+          Cmd: EXE_STATEFUL
+            ? ["python3", "-c", PY_AGENT_SCRIPT]
+            : [
+                "python3",
+                "-c",
+                "import time,sys;\nprint('container-ready', flush=True);\ntime.sleep(10**8)",
+              ],
+          Tty: false,
+          OpenStdin: false,
+          HostConfig: {
+            AutoRemove: false,
+            NetworkMode: "none",
+            Memory: 128 * 1024 * 1024,
+            CpuShares: 512,
+            Mounts: [
+              {
+                Target: "/opt/venv",
+                Source: volumeName,
+                Type: "volume",
+                ReadOnly: true,
+              } as any,
+            ],
+          },
+          Labels: {
+            "ottrpad.mode": EXE_STATEFUL ? "stateful" : "stateless",
+            "ottrpad.workspace_id": String(workspaceId),
+            "ottrpad.requirements.hash": hash,
+          },
+          Env: [
+            "VIRTUAL_ENV=/opt/venv",
+            "PYTHONNOUSERSITE=1",
+            "PATH=/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+          ],
+        });
+      } catch (createErr: any) {
+        const msg = createErr?.message || String(createErr);
+        if (/already in use|StatusCode: 409|code 409/i.test(msg)) {
+          // Race: another start created the container first. Reattach to that one.
+          const existing = await findContainerByName(name);
+          if (existing) {
+            const inspect = await existing.inspect();
+            if (!inspect.State.Running) {
+              try {
+                await existing.start();
+              } catch {}
+            }
+            roomContainers[roomId] = existing;
+            markActivity(roomId);
+            startReaper();
+            return existing;
+          }
+          // If we didn't find it, rethrow original error
+        }
+        throw createErr;
+      }
+      await container.start();
+      log.info(
+        `Started container ${name} (${EXE_STATEFUL ? "stateful" : "stateless"})`
+      );
+      roomContainers[roomId] = container;
+      // Ensure meta is present even if recreated
+      if (!roomMeta[roomId]) {
+        const norm2 = normalizeRequirements(requirements);
+        roomMeta[roomId] = {
+          workspaceId,
+          reqHash: hash,
+          allowedPackages: norm2
+            .split(/\n+/)
+            .map((l) => l.trim())
+            .filter(Boolean)
+            .map((p) => p.split(/[<>=!~ ]+/)[0].toLowerCase()),
+        };
+      }
       markActivity(roomId);
       startReaper();
-      return existing;
+      return container;
+    } catch (err: any) {
+      log.error(`Failed to start container ${name}`, {
+        error: err?.message || err,
+      });
+      throw new Error(
+        `Failed to start container for room ${roomId}: ${err?.message || err}`
+      );
     }
+  })();
+  try {
+    const c = await startLocks[roomId];
+    return c;
+  } finally {
+    delete startLocks[roomId];
+  }
+}
 
-    log.info(
-      `Creating container name=${name} image=python:3.11-slim mode=${EXE_STATEFUL ? "stateful" : "stateless"}`
-    );
-    const container = await docker.createContainer({
-      Image: "python:3.11-slim",
-      name,
-      // When stateful mode is enabled, start a Python agent that executes incoming
-      // code snippets over a Unix socket in a shared globals namespace. Otherwise,
-      // start an inert long-running process to keep the container alive.
-      Cmd: EXE_STATEFUL
-        ? ["python3", "-c", PY_AGENT_SCRIPT]
-        : [
-            "python3",
-            "-c",
-            "import time,sys;\nprint('container-ready', flush=True);\ntime.sleep(10**8)",
-          ],
-      Tty: false,
-      OpenStdin: false,
-      HostConfig: {
-        AutoRemove: false,
-        NetworkMode: "none",
-        Memory: 128 * 1024 * 1024,
-        CpuShares: 512,
-      },
-      Labels: {
-        "ottrpad.mode": EXE_STATEFUL ? "stateful" : "stateless",
+// Prewarm: Build venv volumes for all known workspaces without blocking startup
+async function fetchAllWorkspaces(
+  limit = 1000,
+  offset = 0
+): Promise<Array<{ workspace_id: number; requirements: string }>> {
+  try {
+    const resp = await axios.get(`${CORE_URL}/workspaces`, {
+      params: { limit, offset },
+      timeout: 15000,
+      headers: {
+        "x-gateway-user-id": "system-exe",
+        "x-gateway-user-email": "system-exe@internal",
+        "x-original-url": "/internal/exe/workspaces",
       },
     });
-    await container.start();
-    log.info(
-      `Started container ${name} (${EXE_STATEFUL ? "stateful" : "stateless"})`
-    );
-    roomContainers[roomId] = container;
-    markActivity(roomId);
-    startReaper();
-    return container;
-  } catch (err: any) {
-    log.error(`Failed to start container ${name}`, {
-      error: err?.message || err,
+    const list = resp.data?.workspaces || [];
+    return list.map((w: any) => ({
+      workspace_id: Number(w.workspace_id),
+      requirements: String(w.requirements || ""),
+    }));
+  } catch (e: any) {
+    log.warn("prewarm.fetch_workspaces_failed", { error: e?.message || e });
+    return [];
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  let idx = 0;
+  const workers = new Array(Math.max(1, limit)).fill(null).map(async () => {
+    while (true) {
+      const i = idx++;
+      if (i >= items.length) break;
+      try {
+        const r = await fn(items[i]);
+        results[i] = r as any;
+      } catch (e) {
+        // keep going
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+export async function prewarmAllVenvs(concurrency = 2) {
+  try {
+    const ws = await fetchAllWorkspaces();
+    if (!ws.length) {
+      log.info("prewarm.no_workspaces");
+      return;
+    }
+    log.info("prewarm.start", { count: ws.length, concurrency });
+    await mapWithConcurrency(ws, concurrency, async (w) => {
+      const norm = normalizeRequirements(w.requirements);
+      const { volumeName } = await ensureVenvVolume(w.workspace_id, norm);
+      log.info("prewarm.venv_ready", {
+        workspaceId: w.workspace_id,
+        volumeName,
+      });
     });
-    throw new Error(
-      `Failed to start container for room ${roomId}: ${err?.message || err}`
-    );
+    log.info("prewarm.done");
+  } catch (e: any) {
+    log.warn("prewarm.failed", { error: e?.message || e });
   }
 }
 
@@ -148,6 +643,28 @@ async function findContainerByName(
 export async function execCode(roomId: string, code: string): Promise<string> {
   let container = roomContainers[roomId];
   if (!container) throw new Error("No container running for this room");
+  // Intercept attempts to install packages and return friendly guidance
+  const installAttempt =
+    /(^|\n|;)\s*(!\s*)?pip\s+install\b|python\s+-m\s+pip\b|pip\._internal|subprocess\..*pip\s+install|os\.system\(.*pip\s+install/i.test(
+      code
+    );
+  if (installAttempt) {
+    const allowed = roomMeta[roomId]?.allowedPackages || [];
+    const list = allowed
+      .slice(0, 50)
+      .map((p) => `- ${p}`)
+      .join("\n");
+    const msg = [
+      "Package installation is disabled in this environment.",
+      "",
+      "You can only use the preinstalled workspace packages:",
+      list || "(no extra third‑party packages configured)",
+      "",
+      "To add more packages, update the workspace requirements and restart.",
+    ].join("\n");
+    log.info("exec.block_install", { roomId });
+    return msg + "\n";
+  }
   markActivity(roomId);
   const startTs = Date.now();
   const codeSnippet = code.length > 60 ? code.slice(0, 57) + "..." : code;
@@ -205,9 +722,7 @@ export async function execCode(roomId: string, code: string): Promise<string> {
     });
   }
 
-  async function runAgent(
-    pyCode: string
-  ): Promise<{
+  async function runAgent(pyCode: string): Promise<{
     ok: boolean;
     stdout: string;
     stderr: string;
@@ -369,4 +884,79 @@ export async function stopContainer(roomId: string) {
 
 export function hasContainer(roomId: string) {
   return Boolean(roomContainers[roomId]);
+}
+
+export async function getRoomStatus(roomId: string): Promise<{
+  venv: "missing" | "building" | "ready" | "unknown";
+  container: "running" | "stopped" | "absent";
+  workspaceId?: number;
+  requirementsHash?: string;
+}> {
+  let workspaceId: number | undefined = undefined;
+  let reqHash: string | undefined = undefined;
+  let venv: "missing" | "building" | "ready" | "unknown" = "unknown";
+  try {
+    const w = await fetchWorkspaceForRoom(roomId);
+    workspaceId = w.workspaceId;
+    const norm = normalizeRequirements(w.requirements);
+    reqHash = requirementsHash(norm);
+    const volumeName = `ottrpad-venv-${reqHash}`;
+
+    // Determine venv status
+    try {
+      const vols = await (docker as any).listVolumes();
+      const found = Array.isArray(vols?.Volumes)
+        ? vols.Volumes.some((v: any) => v.Name === volumeName)
+        : false;
+      if (!found) {
+        // If a builder is running, it's building; else missing
+        const builders = await docker.listContainers({
+          all: true,
+          filters: {
+            label: ["ottrpad.kind=venv-builder", `ottrpad.venv=${volumeName}`],
+          } as any,
+        });
+        const building = builders.some((c) => c.State === "running");
+        venv = building ? "building" : "missing";
+      } else {
+        // Volume exists; consider it ready unless a builder is still running
+        const builders = await docker.listContainers({
+          all: true,
+          filters: {
+            label: ["ottrpad.kind=venv-builder", `ottrpad.venv=${volumeName}`],
+          } as any,
+        });
+        const building = builders.some((c) => c.State === "running");
+        venv = building ? "building" : "ready";
+      }
+    } catch (e) {
+      venv = "unknown";
+    }
+  } catch (e) {
+    // Workspace lookup failed; leave venv unknown
+    venv = "unknown";
+  }
+
+  // Container status
+  let containerStatus: "running" | "stopped" | "absent" = "absent";
+  try {
+    let container = roomContainers[roomId];
+    if (!container) {
+      const existing = await findContainerByName(roomId);
+      if (existing) container = existing;
+    }
+    if (container) {
+      const inspect = await container.inspect();
+      containerStatus = inspect.State.Running ? "running" : "stopped";
+    }
+  } catch {
+    containerStatus = "absent";
+  }
+
+  return {
+    venv,
+    container: containerStatus,
+    workspaceId,
+    requirementsHash: reqHash,
+  };
 }
