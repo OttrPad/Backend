@@ -1,0 +1,17 @@
+{
+  "name": "@ottrpad/logger",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/winston": "^2.4.4",
+    "typescript": "^5.8.3"
+  }
+}

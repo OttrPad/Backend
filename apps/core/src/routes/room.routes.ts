@@ -8,6 +8,7 @@ import {
   getAllRoomsHandler,
   getRoomByIdHandler,
   joinRoomByCodeHandler,
+  getRoomByCodeHandler,
 } from "../controllers/room.Controller";
 import {
   addEmailToRoomHandler,
@@ -55,6 +56,7 @@ router.get("/users/test", async (req, res) => {
 router.post("/", createRoomHandler); // POST /rooms -> creates a room
 router.get("/", getAllRoomsHandler); // GET /rooms -> list all rooms
 router.post("/join", joinRoomByCodeHandler); // POST /rooms/join -> join room by code
+router.get("/code/:code", getRoomByCodeHandler); // GET /rooms/code/:code -> get room by code
 router.post("/:id/join", joinRoomHandler); // POST /rooms/:id/join -> join room by ID
 router.delete("/:id/leave", leaveRoomHandler); // DELETE /rooms/:id/leave
 router.get("/:id", getRoomByIdHandler); // GET /rooms/:id -> get room details

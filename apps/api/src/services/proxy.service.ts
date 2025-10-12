@@ -20,11 +20,11 @@ const services: Record<string, ServiceConfig> = {
     baseUrl: process.env.COLLABORATION_SERVICE_URL || "http://localhost:5002",
     timeout: 15000, // 15 seconds for real-time features
   },
-  versionControl: {
-    name: "Version Control Service",
-    baseUrl: process.env.VERSION_CONTROL_SERVICE_URL || "http://localhost:4003",
-    timeout: 20000, // 20 seconds
-  }
+  execution: {
+    name: "Execution Service",
+    baseUrl: process.env.EXECUTION_SERVICE_URL || "http://localhost:4004",
+    timeout: 20000,
+  },
   // Add more services here as they're created
   // auth: {
   //   name: 'Auth Service',

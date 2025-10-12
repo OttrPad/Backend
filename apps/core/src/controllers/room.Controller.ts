@@ -13,16 +13,19 @@ import {
   removeUserFromRoom,
   processUserJoinRoom,
 } from "../services/roomUserService";
+import { supabase } from "@packages/supabase";
 
 export const createRoomHandler = async (req: Request, res: Response) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, workspace_id } = req.body;
 
     // Get user info from API Gateway headers
     const userId = req.headers["x-gateway-user-id"] as string;
     const userEmail = req.headers["x-gateway-user-email"] as string;
 
     if (!name) return res.status(400).json({ error: "Room name is required" });
+    if (workspace_id === undefined || workspace_id === null)
+      return res.status(400).json({ error: "workspace_id is required" });
     if (!userId)
       return res.status(400).json({ error: "User authentication required" });
 
@@ -39,7 +42,27 @@ export const createRoomHandler = async (req: Request, res: Response) => {
         .json({ error: "Room with this name already exists" });
     }
 
-    const room = await createRoom(name, userId, description);
+    // Validate workspace exists
+    const { data: ws, error: wsError } = await supabase
+      .from("Workspaces")
+      .select("workspace_id")
+      .eq("workspace_id", workspace_id)
+      .single();
+
+    if (wsError && wsError.code !== "PGRST116") {
+      console.error("Error validating workspace:", wsError.message || wsError);
+      return res.status(500).json({ error: "Failed to validate workspace" });
+    }
+    if (!ws) {
+      return res.status(400).json({ error: "Invalid workspace_id" });
+    }
+
+    const room = await createRoom(
+      name,
+      userId,
+      Number(workspace_id),
+      description
+    );
 
     // Add the creator as admin to Room_users
     await addUserToRoom(room.room_id.toString(), userId, "admin");
@@ -55,6 +78,7 @@ export const createRoomHandler = async (req: Request, res: Response) => {
         name: room.name,
         description: room.description,
         room_code: room.room_code,
+        workspace_id: room.workspace_id,
         created_at: room.created_at,
         created_by: room.created_by,
       },
@@ -121,6 +145,29 @@ export const getRoomByIdHandler = async (req: Request, res: Response) => {
   }
 };
 
+export const getRoomByCodeHandler = async (req: Request, res: Response) => {
+  try {
+    const { code } = req.params;
+    if (!code) return res.status(400).json({ error: "Room code is required" });
+
+    const room = await findRoomByCode(code);
+    if (!room) {
+      return res.status(404).json({ error: "Room not found with this code" });
+    }
+
+    return res.status(200).json({
+      message: "Room details retrieved successfully",
+      room,
+    });
+  } catch (err: any) {
+    console.error("Error fetching room by code:", err.message || err);
+    res.status(500).json({
+      error: "Failed to fetch room by code",
+      details: err.message || err,
+    });
+  }
+};
+
 export const joinRoomByCodeHandler = async (req: Request, res: Response) => {
   try {
     const { room_code } = req.body;
@@ -164,6 +211,7 @@ export const joinRoomByCodeHandler = async (req: Request, res: Response) => {
         name: room.name,
         description: room.description,
         room_code: room.room_code,
+        workspace_id: room.workspace_id,
       },
       user: { id: userId, email: userEmail },
     });
@@ -171,7 +219,7 @@ export const joinRoomByCodeHandler = async (req: Request, res: Response) => {
     console.error("Error joining room by code:", err.message || err);
 
     // Handle specific errors
-    if (err.message && err.message.includes("already")) {
+    if (err?.message && err.message.includes("already")) {
       return res.status(409).json({
         error: "Already in room",
         message: "You are already a member of this room",
@@ -218,13 +266,14 @@ export const joinRoomHandler = async (req: Request, res: Response) => {
         id: roomId,
         name: room.name,
         room_code: room.room_code,
+        workspace_id: room.workspace_id,
       },
       user: { id: userId, email: userEmail },
     });
   } catch (err: any) {
     console.error("Error joining room:", err.message || err);
 
-    if (err.message && err.message.includes("already")) {
+    if (err?.message && err.message.includes("already")) {
       return res.status(409).json({
         error: "Already in room",
         message: "You are already a member of this room",

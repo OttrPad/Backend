@@ -5,9 +5,291 @@ import { verifySupabaseJWT } from "../middleware/auth.middleware";
 const router: Router = Router();
 
 // =============================================================================
+// EXECUTION SERVICE PROXY ROUTES
+// All execution routes can be protected later; for now add optional auth if needed.
+// Frontend should call the gateway e.g. POST /api/execute/room/:roomId/start
+// =============================================================================
+
+/**
+ * @swagger
+ * tags:
+ *   - name: Execution
+ *     description: Code execution endpoints
+ */
+
+/**
+ * @swagger
+ * /api/execute/room/{roomId}/start:
+ *   post:
+ *     summary: Start (or warm) execution container for a room
+ *     description: Idempotent. Returns 200 even if the container is already running.
+ *     tags: [Execution]
+ *     parameters:
+ *       - in: path
+ *         name: roomId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Container is running or already started
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: started
+ */
+router.post(
+  "/execute/room/:roomId/start",
+  async (req: Request, res: Response) => {
+    await serviceProxy.proxyRequest(
+      "execution",
+      `/execute/room/${encodeURIComponent(req.params.roomId)}/start`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/execute/room/{roomId}/exec:
+ *   post:
+ *     summary: Execute code in a room
+ *     description: Sends a code snippet to be executed. In stateful mode, variables persist between calls for the same room.
+ *     tags: [Execution]
+ *     parameters:
+ *       - in: path
+ *         name: roomId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [code]
+ *             properties:
+ *               code:
+ *                 type: string
+ *                 example: "print('hello from room')"
+ *     responses:
+ *       200:
+ *         description: Execution succeeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 output:
+ *                   type: string
+ *                   example: "hello from room\n"
+ *       400:
+ *         description: Bad request (missing code or room not running)
+ *       500:
+ *         description: Execution failed
+ */
+router.post(
+  "/execute/room/:roomId/exec",
+  async (req: Request, res: Response) => {
+    await serviceProxy.proxyRequest(
+      "execution",
+      `/execute/room/${encodeURIComponent(req.params.roomId)}/exec`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/execute/room/{roomId}/stop:
+ *   post:
+ *     summary: Stop the execution container for a room
+ *     description: Idempotent. Returns 200 even if the container is already stopped or absent.
+ *     tags: [Execution]
+ *     parameters:
+ *       - in: path
+ *         name: roomId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Container stopped or already stopped
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: stopped
+ */
+router.post(
+  "/execute/room/:roomId/stop",
+  async (req: Request, res: Response) => {
+    await serviceProxy.proxyRequest(
+      "execution",
+      `/execute/room/${encodeURIComponent(req.params.roomId)}/stop`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/execute/room/{roomId}/status:
+ *   get:
+ *     summary: Get execution setup status for a room
+ *     description: Returns whether the environment (venv) is building/ready and container status, so the frontend can show setup progress.
+ *     tags: [Execution]
+ *     parameters:
+ *       - in: path
+ *         name: roomId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Current status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 roomId:
+ *                   type: string
+ *                 venv:
+ *                   type: string
+ *                   enum: [missing, building, ready, unknown]
+ *                 container:
+ *                   type: string
+ *                   enum: [running, stopped, absent]
+ *                 workspaceId:
+ *                   type: integer
+ *                   nullable: true
+ *                 requirementsHash:
+ *                   type: string
+ *                   nullable: true
+ */
+router.get(
+  "/execute/room/:roomId/status",
+  async (req: Request, res: Response) => {
+    await serviceProxy.proxyRequest(
+      "execution",
+      `/execute/room/${encodeURIComponent(req.params.roomId)}/status`,
+      req,
+      res
+    );
+  }
+);
+
+// =============================================================================
 // ROOM MANAGEMENT ROUTES
 // All room routes are protected and require authentication
 // =============================================================================
+
+// =============================================================================
+// WORKSPACES ROUTES (starter templates)
+// =============================================================================
+
+/**
+ * @swagger
+ * /api/workspaces:
+ *   get:
+ *     summary: List available starter workspaces/templates
+ *     description: Returns a paginated list of workspaces that users can choose when creating a room.
+ *     tags: [Workspaces]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *     responses:
+ *       200:
+ *         description: Workspaces list
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/workspaces", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("core", `/workspaces`, req, res);
+});
+
+/**
+ * @swagger
+ * /api/workspaces/{id}:
+ *   get:
+ *     summary: Get a workspace by id
+ *     description: Returns details of a specific workspace/template.
+ *     tags: [Workspaces]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Numeric workspace ID
+ *     responses:
+ *       200:
+ *         description: Workspace found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Workspace retrieved successfully"
+ *                 workspace:
+ *                   type: object
+ *                   properties:
+ *                     workspace_id:
+ *                       type: integer
+ *                     name:
+ *                       type: string
+ *                     requirements:
+ *                       type: string
+ *                       nullable: true
+ *       400:
+ *         description: Invalid workspace id
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Valid workspace id is required"
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Workspace not found
+ */
+router.get("/workspaces/:id", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest(
+    "core",
+    `/workspaces/${encodeURIComponent(req.params.id)}`,
+    req,
+    res
+  );
+});
 
 /**
  * @swagger
@@ -26,6 +308,7 @@ const router: Router = Router();
  *             type: object
  *             required:
  *               - name
+ *               - workspace_id
  *             properties:
  *               name:
  *                 type: string
@@ -35,6 +318,10 @@ const router: Router = Router();
  *                 type: string
  *                 description: Optional room description
  *                 example: "A collaborative coding session for our project"
+ *               workspace_id:
+ *                 type: integer
+ *                 description: ID of the workspace/template to base the room on. Obtain from GET /api/workspaces
+ *                 example: 1
  *     responses:
  *       201:
  *         description: Room created successfully
@@ -58,6 +345,9 @@ const router: Router = Router();
  *                     description:
  *                       type: string
  *                       description: Room description
+ *                     workspace_id:
+ *                       type: integer
+ *                       description: Associated workspace/template ID
  *                     room_code:
  *                       type: string
  *                       pattern: '^[a-z0-9]{3}-[a-z0-9]{3}-[a-z0-9]{3}$'
@@ -90,11 +380,17 @@ const router: Router = Router();
  *                     - "User authentication required"
  *                     - "You already created a room with this name"
  *                     - "Room with this name already exists"
+ *                     - "workspace_id is required"
+ *                     - "Invalid workspace_id"
  *             examples:
  *               missing_name:
  *                 summary: Missing room name
  *                 value:
  *                   error: "Room name is required"
+ *               missing_workspace_id:
+ *                 summary: Missing workspace_id
+ *                 value:
+ *                   error: "workspace_id is required"
  *               duplicate_by_same_user:
  *                 summary: Same user trying to create duplicate room
  *                 value:
@@ -103,6 +399,10 @@ const router: Router = Router();
  *                 summary: Missing authentication
  *                 value:
  *                   error: "User authentication required"
+ *               invalid_workspace:
+ *                 summary: Invalid workspace_id
+ *                 value:
+ *                   error: "Invalid workspace_id"
  *       401:
  *         description: Unauthorized - Invalid or missing JWT token
  */
@@ -154,6 +454,9 @@ router.post("/rooms", verifySupabaseJWT, async (req, res) => {
  *                         type: string
  *                       description:
  *                         type: string
+ *                       workspace_id:
+ *                         type: string
+ *                         format: uuid
  *                       room_code:
  *                         type: string
  *                       created_by:
@@ -236,6 +539,9 @@ router.get("/rooms", verifySupabaseJWT, async (req, res) => {
  *                       type: string
  *                     name:
  *                       type: string
+ *                     workspace_id:
+ *                       type: string
+ *                       format: uuid
  *                     room_code:
  *                       type: string
  *                 user:
@@ -394,6 +700,9 @@ router.get("/rooms/:id", verifySupabaseJWT, async (req, res) => {
  *                       type: string
  *                     name:
  *                       type: string
+ *                     workspace_id:
+ *                       type: string
+ *                       format: uuid
  *                     room_code:
  *                       type: string
  *                 user:
@@ -1697,9 +2006,13 @@ router.get("/users/profile", verifySupabaseJWT, async (req, res) => {
 });
 
 // AI chat proxy
-router.post('/ai/chat', verifySupabaseJWT, async (req: Request, res: Response) => {
-  await serviceProxy.proxyRequest('core', '/ai/chat', req, res);
-});
+router.post(
+  "/ai/chat",
+  verifySupabaseJWT,
+  async (req: Request, res: Response) => {
+    await serviceProxy.proxyRequest("core", "/ai/chat", req, res);
+  }
+);
 
 // =============================================================================
 // FUTURE MICROSERVICES

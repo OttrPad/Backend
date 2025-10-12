@@ -57,6 +57,7 @@ const generateUniqueRoomCode = async (): Promise<string> => {
 export const createRoom = async (
   name: string,
   createdBy: string,
+  workspaceId: number,
   description?: string
 ) => {
   // Generate unique room code
@@ -66,6 +67,7 @@ export const createRoom = async (
     name,
     created_by: createdBy,
     room_code: roomCode,
+    workspace_id: workspaceId,
     description: description || null,
   };
 
