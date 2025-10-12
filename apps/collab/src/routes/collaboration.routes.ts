@@ -12,6 +12,11 @@ function getYjsManager(req: Request): YjsDocumentManager {
   return req.app.locals.realtimeService.getYjsManager();
 }
 
+const VERSION_CONTROL_BASE =
+  (process.env.VERSION_CONTROL_SERVICE_URL || "http://localhost:5000") +
+  "/api/version-control";
+const INTERNAL_VCS_SECRET = process.env.VERSION_CONTROL_INTERNAL_SECRET || "";
+
 // Health check endpoint
 router.get("/health", (req: Request, res: Response) => {
   res.json({
@@ -435,11 +440,55 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { notebookId } = req.params;
+      const yjsManager = getYjsManager(req);
+      // If doc not loaded, try auto-restore latest temp snapshot, else noop
+      if (!yjsManager.hasDocument(notebookId)) {
+        try {
+          // Query VCS for latest commit for this notebook marked as temp/hidden
+          const qs = new URLSearchParams({
+            notebookId,
+            type: "temp",
+            limit: "1",
+          }).toString();
+          const resp = await fetch(`${VERSION_CONTROL_BASE}/commits?${qs}`, {
+            headers: {
+              accept: "application/json",
+              "x-internal-secret": INTERNAL_VCS_SECRET,
+            },
+          });
+          if (resp.ok) {
+            const json = await resp.json();
+            const tempCommit = (json?.commits || [])[0];
+            if (tempCommit?.commit_id) {
+              const snapResp = await fetch(
+                `${VERSION_CONTROL_BASE}/commits/${tempCommit.commit_id}/snapshot`,
+                { headers: { "x-internal-secret": INTERNAL_VCS_SECRET } as any }
+              );
+              if (snapResp.ok) {
+                const snapshot = await snapResp.json();
+                yjsManager.applySnapshot(notebookId, snapshot);
+                // Optionally delete the temp commit now (best-effort)
+                await fetch(
+                  `${VERSION_CONTROL_BASE}/commits/${tempCommit.commit_id}`,
+                  {
+                    method: "DELETE",
+                    headers: {
+                      "x-internal-secret": INTERNAL_VCS_SECRET,
+                    } as any,
+                  }
+                );
+              }
+            }
+          }
+        } catch (e) {
+          // best effort only
+          console.warn("Temp auto-restore failed:", e);
+        }
+      }
 
-      // Simply return success since we're in-memory only
       res.json({
         success: true,
-        message: "Document ready (in-memory mode)",
+        message: "Document ready",
         data: { notebookId },
       });
     } catch (error) {
@@ -454,3 +503,64 @@ router.post(
 );
 
 export default router;
+// Apply a full notebook snapshot (server-side restore)
+router.post(
+  "/notebooks/:notebookId/restore",
+  async (req: Request, res: Response) => {
+    try {
+      const { notebookId } = req.params;
+      const snapshot = req.body as {
+        cells: Array<{
+          cell_type: string;
+          metadata: { id?: string; language?: string; [k: string]: any };
+          source: string[];
+          outputs?: any[];
+        }>;
+        metadata?: Record<string, any>;
+      };
+
+      const yjsManager = getYjsManager(req);
+      // Reset doc by creating a new Y.Doc internally
+      const ydoc = yjsManager.getDocument(notebookId);
+      const blocks = ydoc.getMap("blocks");
+      const blockContent = ydoc.getMap("blockContent");
+      // Clear existing
+      Array.from(blocks.keys()).forEach((k) => blocks.delete(k as any));
+      Array.from(blockContent.keys()).forEach((k) =>
+        blockContent.delete(k as any)
+      );
+
+      // Rebuild from snapshot
+      let position = 0;
+      for (const cell of snapshot.cells || []) {
+        const id =
+          cell.metadata?.id ||
+          `block_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        blocks.set(id, {
+          id,
+          type: cell.cell_type === "code" ? "code" : "markdown",
+          language: cell.metadata?.language,
+          position: position++,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        } as any);
+        const ytext =
+          yjsManager.getBlockText(notebookId, id) ||
+          new (require("yjs").Text)();
+        // If new, need to set into map
+        if (!yjsManager.getBlockText(notebookId, id)) {
+          blockContent.set(id, ytext as any);
+        }
+        (ytext as any).delete(0, (ytext as any).length || 0);
+        (ytext as any).insert(0, (cell.source || []).join("\n"));
+      }
+
+      res.json({ success: true, data: { notebookId } });
+    } catch (error) {
+      console.error("Restore notebook error:", error);
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to restore notebook" });
+    }
+  }
+);

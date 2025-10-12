@@ -27,6 +27,21 @@ export class YjsDocumentManager {
     return this.documents.get(notebookId)!;
   }
 
+  /** Check if a Y.Doc is currently loaded for this notebook */
+  hasDocument(notebookId: string): boolean {
+    return this.documents.has(notebookId);
+  }
+
+  /**
+   * Bump room last activity timestamp (noop if room not yet initialized)
+   */
+  bumpRoomActivity(roomId: string): void {
+    const room = this.rooms.get(roomId);
+    if (room) {
+      room.lastActivity = Date.now();
+    }
+  }
+
   /**
    * Initialize a new Y.Doc with the required structure
    */
@@ -80,6 +95,9 @@ export class YjsDocumentManager {
     // Create a default code block
     this.createBlock(notebookId, "code", 0, "python");
 
+    // Activity bump
+    this.bumpRoomActivity(roomId);
+
     return notebook;
   }
 
@@ -122,6 +140,10 @@ export class YjsDocumentManager {
         }
         metadata.set("updatedAt", Date.now());
 
+        // Activity bump
+        const room = this.rooms.get(roomId);
+        if (room) room.lastActivity = Date.now();
+
         return updatedNotebook;
       }
     }
@@ -145,6 +167,9 @@ export class YjsDocumentManager {
 
         // Remove from room
         this.removeNotebookFromRoom(roomId, notebookId);
+
+        // Activity bump
+        this.bumpRoomActivity(roomId);
 
         return true;
       }
@@ -183,6 +208,10 @@ export class YjsDocumentManager {
     const ytext = new Y.Text();
     blockContent.set(blockId, ytext);
 
+    // Bump activity for the room this notebook belongs to
+    const nb = this.findNotebookSync(notebookId);
+    if (nb) this.bumpRoomActivity(nb.roomId);
+
     return block;
   }
 
@@ -200,6 +229,10 @@ export class YjsDocumentManager {
 
     blocks.delete(blockId);
     blockContent.delete(blockId);
+
+    // Activity bump
+    const nb = this.findNotebookSync(notebookId);
+    if (nb) this.bumpRoomActivity(nb.roomId);
 
     return true;
   }
@@ -219,6 +252,10 @@ export class YjsDocumentManager {
     block.position = newPosition;
     block.updatedAt = Date.now();
     blocks.set(blockId, block);
+
+    // Activity bump
+    const nb = this.findNotebookSync(notebookId);
+    if (nb) this.bumpRoomActivity(nb.roomId);
 
     return true;
   }
@@ -253,6 +290,8 @@ export class YjsDocumentManager {
   applyUpdate(notebookId: string, update: Uint8Array): void {
     const ydoc = this.getDocument(notebookId);
     Y.applyUpdate(ydoc, update);
+    const nb = this.findNotebookSync(notebookId);
+    if (nb) this.bumpRoomActivity(nb.roomId);
   }
 
   /**
@@ -286,6 +325,7 @@ export class YjsDocumentManager {
       blockContent: ydoc.getMap("blockContent") as any,
       metadata: ydoc.getMap("metadata") as any,
     });
+    room.lastActivity = Date.now();
   }
 
   /**
@@ -307,6 +347,13 @@ export class YjsDocumentManager {
   }
 
   /**
+   * List all tracked rooms
+   */
+  getAllRooms(): CollaborationRoom[] {
+    return Array.from(this.rooms.values());
+  }
+
+  /**
    * Find a notebook by ID and return it with its room information
    */
   async findNotebook(notebookId: string): Promise<NotebookDocument | null> {
@@ -318,6 +365,129 @@ export class YjsDocumentManager {
       }
     }
     return null;
+  }
+
+  // Synchronous variant to avoid async in hot paths
+  private findNotebookSync(notebookId: string): NotebookDocument | null {
+    for (const notebooks of this.inMemoryNotebooks.values()) {
+      const nb = notebooks.find((n) => n.id === notebookId);
+      if (nb) return nb;
+    }
+    return null;
+  }
+
+  /**
+   * Export notebook as a snapshot compatible with VCS commits
+   */
+  exportNotebookSnapshot(notebookId: string): {
+    cells: Array<{
+      cell_type: string;
+      metadata: { id?: string; language?: string; [k: string]: any };
+      source: string[];
+      outputs?: any[];
+    }>;
+    metadata?: Record<string, any>;
+  } {
+    const ydoc = this.getDocument(notebookId);
+    const blocks = ydoc.getMap("blocks");
+    const blockContent = ydoc.getMap("blockContent");
+
+    const items: any[] = [];
+    blocks.forEach((b, id) => {
+      const block = b as NotebookBlock;
+      const ytext = blockContent.get(id as string) as Y.Text;
+      items.push({
+        block,
+        id: id as string,
+        text: ytext ? ytext.toString() : "",
+      });
+    });
+    items.sort((a, b) => a.block.position - b.block.position);
+
+    const cells = items.map((it) => ({
+      cell_type: it.block.type === "code" ? "code" : "markdown",
+      metadata: { id: it.id, language: it.block.language },
+      source: (it.text || "").split("\n"),
+      outputs: [],
+    }));
+
+    const metadata = (ydoc.getMap("metadata") as any)?.toJSON?.() || {};
+
+    return { cells, metadata };
+  }
+
+  /**
+   * Apply a full snapshot to a notebook (reset and rebuild)
+   */
+  applySnapshot(
+    notebookId: string,
+    snapshot: {
+      cells: Array<{
+        cell_type: string;
+        metadata: { id?: string; language?: string; [k: string]: any };
+        source: string[];
+        outputs?: any[];
+      }>;
+      metadata?: Record<string, any>;
+    }
+  ): void {
+    const ydoc = this.getDocument(notebookId);
+    const blocks = ydoc.getMap("blocks");
+    const blockContent = ydoc.getMap("blockContent");
+    // Clear
+    Array.from(blocks.keys()).forEach((k) => blocks.delete(k as any));
+    Array.from(blockContent.keys()).forEach((k) =>
+      blockContent.delete(k as any)
+    );
+
+    // Rebuild
+    let position = 0;
+    for (const cell of snapshot.cells || []) {
+      const id =
+        (cell.metadata && cell.metadata.id) ||
+        `block_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      blocks.set(id, {
+        id,
+        type: cell.cell_type === "code" ? "code" : "markdown",
+        language: cell.metadata?.language,
+        position: position++,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      } as any);
+      let ytext = blockContent.get(id) as Y.Text;
+      if (!ytext) {
+        ytext = new Y.Text();
+        blockContent.set(id, ytext as any);
+      }
+      // Replace content
+      (ytext as any).delete(0, (ytext as any).length || 0);
+      (ytext as any).insert(0, (cell.source || []).join("\n"));
+    }
+
+    // Activity bump
+    const nb = this.findNotebookSync(notebookId);
+    if (nb) this.bumpRoomActivity(nb.roomId);
+  }
+
+  /**
+   * Unload Yjs docs for all notebooks in a room (keep notebook metadata list)
+   */
+  unloadRoomDocs(roomId: string): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    for (const notebookId of Array.from(room.notebooks.keys())) {
+      // Destroy Y.Doc instance and remove from maps
+      const ydoc = this.documents.get(notebookId);
+      if (ydoc) {
+        try {
+          ydoc.destroy();
+        } catch {}
+        this.documents.delete(notebookId);
+      }
+    }
+    // Clear notebook Yjs references but keep room entry to track activity
+    room.notebooks.clear();
+    room.lastActivity = Date.now();
   }
 
   /**

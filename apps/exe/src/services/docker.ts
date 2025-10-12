@@ -38,6 +38,7 @@ const CORE_URL = process.env.CORE_SERVICE_URL || "http://localhost:3001";
 
 // Build-time image used for both builder and runtime containers
 const BASE_IMAGE = process.env.EXE_VENV_BASE_IMAGE || "python:3.11-slim";
+const NETWORK_MODE = process.env.EXE_NETWORK_MODE || "none"; // set to 'bridge' if needed
 // Optional: enable a shared pip cache volume to speed up builds across workspaces
 const ENABLE_PIP_CACHE = !/^(0|false)$/i.test(
   process.env.EXE_VENV_PIP_CACHE || "1"
@@ -82,6 +83,30 @@ function requirementsHash(reqText: string): string {
     .update(norm, "utf8")
     .digest("hex")
     .slice(0, 16);
+}
+
+async function ensureBaseImage() {
+  try {
+    const images = await docker.listImages();
+    const found = images.some((img) =>
+      (img.RepoTags || []).includes(BASE_IMAGE)
+    );
+    if (!found) {
+      log.info("docker.pull_base_image.start", { image: BASE_IMAGE });
+      await new Promise<void>((resolve, reject) => {
+        docker.pull(BASE_IMAGE, (err: any, stream: any) => {
+          if (err) return reject(err);
+          docker.modem.followProgress(stream, (e: any) => {
+            if (e) reject(e);
+            else resolve();
+          });
+        });
+      });
+      log.info("docker.pull_base_image.done", { image: BASE_IMAGE });
+    }
+  } catch (e: any) {
+    log.warn("docker.pull_base_image.failed", { error: e?.message || e });
+  }
 }
 
 async function fetchWorkspaceForRoom(
@@ -205,6 +230,7 @@ async function ensureNamedVolume(name: string) {
 }
 
 async function buildVenvInVolume(volumeName: string, reqText: string) {
+  await ensureBaseImage();
   // Encode requirements to base64 to write file inside container
   const b64 = Buffer.from(String(reqText || "")).toString("base64");
   const pipIndexArgs = [
@@ -388,9 +414,10 @@ export async function startContainer(roomId: string) {
     // Another start is in progress; wait for it and return the same container
     return startLocks[roomId];
   }
-  const name = roomId;
+  const name = roomId.replace(/[^a-zA-Z0-9_.-]/g, "-");
   startLocks[roomId] = (async () => {
     try {
+      await ensureBaseImage();
       // Determine workspace and ensure venv
       const { workspaceId, requirements } = await fetchWorkspaceForRoom(roomId);
       const { volumeName, hash } = await ensureVenvVolume(
@@ -473,7 +500,7 @@ export async function startContainer(roomId: string) {
           OpenStdin: false,
           HostConfig: {
             AutoRemove: false,
-            NetworkMode: "none",
+            NetworkMode: NETWORK_MODE,
             Memory: 128 * 1024 * 1024,
             CpuShares: 512,
             Mounts: [

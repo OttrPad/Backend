@@ -27,6 +27,10 @@ const port = process.env.EXE_PORT || process.env.PORT || 4004;
 if (require.main === module) {
   app.listen(port, () => {
     log.info(`exe service listening on :${port}`);
+    // Optionally prewarm venvs to reduce first-run latency
+    if (/^(1|true)$/i.test(process.env.EXE_PREWARM || "0")) {
+      prewarmAllVenvs(2).catch(() => {});
+    }
     // Optional prewarm controlled by env
     const doPrewarm = /^(1|true|all)$/i.test(
       process.env.EXE_VENV_PREWARM || ""

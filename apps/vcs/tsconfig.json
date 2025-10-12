@@ -1,10 +1,17 @@
 {
-    "extends": "../../tsconfig.json",
-    "compilerOptions": {
-      "outDir": "./dist",
-      "rootDir": "./src"
-    },
-    "include": ["src/**/*"],
-    "references": [{ "path": "../../packages/supabase" }]
-  }
-  
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@ottrpad/logger": ["../../packages/logger/src/index"],
+      "@packages/supabase": ["../../packages/supabase/src/index"]
+    }
+  },
+  "include": ["src/**/*", "app.ts"],
+  "references": [
+    { "path": "../../packages/supabase" },
+    { "path": "../../packages/logger" }
+  ]
+}

@@ -2079,8 +2079,8 @@ router.get("/version-control/commits", verifySupabaseJWT, async (req, res) => {
  * @swagger
  * /api/version-control/commits:
  *   post:
- *     summary: Create a new commit
- *     description: Add a new commit to the version control system.
+ *     summary: Create a new commit for an entire notebook
+ *     description: Records a notebook-wide commit (full snapshot). Optionally mirrors to a Git repository.
  *     tags: [Version Control]
  *     security:
  *       - BearerAuth: []
@@ -2090,25 +2090,17 @@ router.get("/version-control/commits", verifySupabaseJWT, async (req, res) => {
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - message
- *               - changes
+ *             required: [roomId, notebookId]
  *             properties:
+ *               roomId:
+ *                 type: string
+ *                 description: Room identifier
+ *               notebookId:
+ *                 type: string
+ *                 description: Notebook identifier
  *               message:
  *                 type: string
- *                 description: Commit message
- *                 example: "Fixed a bug in the authentication flow"
- *               changes:
- *                 type: array
- *                 items:
- *                   type: object
- *                   properties:
- *                     file:
- *                       type: string
- *                       description: File path
- *                     diff:
- *                       type: string
- *                       description: Changes made to the file
+ *                 description: Optional commit message
  *     responses:
  *       201:
  *         description: Commit created successfully
@@ -2123,40 +2115,40 @@ router.post("/version-control/commits", verifySupabaseJWT, async (req, res) => {
 
 /**
  * @swagger
- * /api/version-control/milestones:
+ * /api/version-control/commits/{commitId}/snapshot:
  *   get:
- *     summary: Get all milestones
- *     description: Retrieve a list of all milestones for a specific project.
+ *     summary: Get a snapshot for a commit
  *     tags: [Version Control]
  *     security:
  *       - BearerAuth: []
  *     parameters:
- *       - name: projectId
- *         in: query
+ *       - name: commitId
+ *         in: path
  *         required: true
  *         schema:
  *           type: string
- *         description: Project ID
  *     responses:
  *       200:
- *         description: List of milestones retrieved successfully
- *       400:
- *         description: Bad request
- *       401:
- *         description: Unauthorized
- *       404:
- *         description: Project not found
+ *         description: Snapshot returned
  */
-router.get("/version-control/milestones", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest("version-control", "/milestones", req, res);
-});
+router.get(
+  "/version-control/commits/:commitId/snapshot",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/commits/${encodeURIComponent(req.params.commitId)}/snapshot`,
+      req,
+      res
+    );
+  }
+);
 
 /**
  * @swagger
- * /api/version-control/milestones:
+ * /api/version-control/restore:
  *   post:
- *     summary: Create a new milestone
- *     description: Add a new milestone to the version control system.
+ *     summary: Restore a notebook to a specific commit
  *     tags: [Version Control]
  *     security:
  *       - BearerAuth: []
@@ -2166,19 +2158,91 @@ router.get("/version-control/milestones", verifySupabaseJWT, async (req, res) =>
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - title
- *               - dueDate
+ *             required: [roomId, commitId]
  *             properties:
- *               title:
+ *               roomId:
  *                 type: string
- *                 description: Milestone title
- *                 example: "Version 1.0 Release"
- *               dueDate:
+ *               commitId:
  *                 type: string
- *                 format: date
- *                 description: Due date for the milestone
- *                 example: "2023-12-31"
+ *     responses:
+ *       200:
+ *         description: Restore snapshot returned
+ */
+router.post("/version-control/restore", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("version-control", "/restore", req, res);
+});
+
+/**
+ * @swagger
+ * /api/version-control/milestones/{roomId}:
+ *   get:
+ *     summary: Get milestones for a room
+ *     description: Retrieve all milestones with their commit snapshots for the specified room.
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Room ID
+ *     responses:
+ *       200:
+ *         description: List of milestones retrieved successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Room not found
+ */
+router.get(
+  "/version-control/milestones/:roomId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/milestones/${encodeURIComponent(req.params.roomId)}`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/milestones:
+ *   post:
+ *     summary: Create a milestone snapshot for a room
+ *     description: Links the latest commits of selected documents (or flagged commits) with a milestone note. Stores a snapshot and creates a Git tag.
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [roomId, milestoneName]
+ *             properties:
+ *               roomId:
+ *                 type: string
+ *                 description: Room identifier
+ *               milestoneName:
+ *                 type: string
+ *                 description: Human-readable milestone name (e.g., "Research Draft v1")
+ *               milestoneNotes:
+ *                 type: string
+ *                 description: Optional note to capture context (e.g., what changed, why it's important)
+ *               // Optional future fields:
+ *               // commitIds:
+ *               //   type: array
+ *               //   items:
+ *               //     type: string
+ *               //   description: Specific commit IDs to include in snapshot
  *     responses:
  *       201:
  *         description: Milestone created successfully
@@ -2187,8 +2251,129 @@ router.get("/version-control/milestones", verifySupabaseJWT, async (req, res) =>
  *       401:
  *         description: Unauthorized
  */
-router.post("/version-control/milestones", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest("version-control", "/milestones", req, res);
-});
+router.post(
+  "/version-control/milestones",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest("version-control", "/milestones", req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/milestones/{roomId}/{milestoneId}:
+ *   delete:
+ *     summary: Delete a milestone
+ *     description: Removes a milestone record for a room. Only the creator/owner can delete.
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - name: milestoneId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Milestone deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ */
+router.delete(
+  "/version-control/milestones/:roomId/:milestoneId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/milestones/${encodeURIComponent(req.params.roomId)}/${encodeURIComponent(
+        req.params.milestoneId
+      )}`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/timeline/{roomId}:
+ *   get:
+ *     summary: Get commit timeline for a room
+ *     description: Returns a chronological list of commits for the given room, enriched with author info.
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Timeline fetched
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/version-control/timeline/:roomId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/timeline/${encodeURIComponent(req.params.roomId)}`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/commits/{commitId}:
+ *   delete:
+ *     summary: Delete a commit
+ *     description: Deletes commit metadata and reverts in the backing Git repository (when configured).
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: commitId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Commit deleted
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Not found
+ */
+router.delete(
+  "/version-control/commits/:commitId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/commits/${encodeURIComponent(req.params.commitId)}`,
+      req,
+      res
+    );
+  }
+);
 
 export default router;

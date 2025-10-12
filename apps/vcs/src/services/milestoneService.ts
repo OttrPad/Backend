@@ -1,75 +1,109 @@
 // src/version-control-service/services/milestoneService.ts
 import { supabase } from "@packages/supabase";
-import simpleGit, { SimpleGit } from "simple-git";
-
-const git: SimpleGit = simpleGit();
+import { getGitRepo } from "../lib/git";
+import { log } from "@ottrpad/logger";
 
 // Service function to create a milestone
-export const createMilestone = async (roomId: string, milestoneName: string, milestoneNotes: string, userId: string) => {
+export const createMilestone = async (
+  roomId: string,
+  milestoneName: string,
+  milestoneNotes: string,
+  userId: string,
+  commitId?: string,
+  userEmail?: string
+) => {
   try {
-    // Step 1: Check if the user is the owner (Room validation)
-    const { data: userRoles, error: roleError } = await supabase
-      .from("Room_users")
-      .select("type")
-      .eq("room_id", roomId)
-      .eq("uid", userId)
-      .single();
-
-    if (roleError) throw new Error(roleError.message);
-
-    if (userRoles?.type !== "owner") {
-      throw new Error("Only owners can create milestones.");
+    // Step 1: Check if the user is the owner
+    // Prefer Allowed_emails (aligns with role middleware); fallback to Room_users
+    if (userEmail) {
+      const { data: access, error: accessErr } = await supabase
+        .from("Allowed_emails")
+        .select("access_level")
+        .eq("room_id", roomId)
+        .eq("email", userEmail)
+        .single();
+      if (accessErr) throw new Error(accessErr.message);
+      if (access?.access_level !== "owner") {
+        throw new Error("Only owners can create milestones.");
+      }
+    } else {
+      const { data: userRoles, error: roleError } = await supabase
+        .from("Room_users")
+        .select("type")
+        .eq("room_id", roomId)
+        .eq("uid", userId)
+        .single();
+      if (roleError) throw new Error(roleError.message);
+      if (userRoles?.type !== "owner") {
+        throw new Error("Only owners can create milestones.");
+      }
     }
 
-    // Step 2: Get the latest commit for each block in the room (milestone commits)
-    const { data: commits, error: commitError } = await supabase
-      .from("commits")
-      .select("commit_id, block_id, commit_message, file_id")
-      .eq("room_id", roomId)
-      .eq("milestone", true)  // Only fetch commits where the milestone flag is true
-      .order("created_at", { ascending: false });
-
-    if (commitError) throw new Error(commitError.message);
-
-    // Ensure that we have at least one commit with the milestone flag set to true
-    if (!commits || commits.length === 0) {
-      throw new Error("No commits marked as milestone found for this room.");
+    // Resolve the target commit: if provided use it; else use latest commit in room
+    let targetCommitId = commitId;
+    if (!targetCommitId) {
+      const { data: latest, error: latestErr } = await supabase
+        .from("Commits")
+        .select("commit_id")
+        .eq("room_id", roomId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+      if (latestErr) throw new Error(latestErr.message);
+      if (!latest) throw new Error("No commits found for this room");
+      targetCommitId = latest.commit_id as string;
     }
-
-    // Step 3: Create the milestone entry in Supabase (with commit snapshot)
-    const commitSnapshot = commits.map(commit => ({
-      block_id: commit.block_id,
-      commit_id: commit.commit_id,
-      commit_message: commit.commit_message,
-      file_id: commit.file_id,
-    }));
 
     const { data, error } = await supabase
-      .from("milestones")
+      .from("Milestones")
       .insert([
         {
           room_id: roomId,
-          milestone_name: milestoneName,
-          milestone_notes: milestoneNotes,
+          name: milestoneName,
+          notes: milestoneNotes,
           created_by: userId,
-          commit_snapshot: commitSnapshot,  // Store commit snapshot as JSON
+          commit_id: targetCommitId,
         },
-      ]);
+      ])
+      .select()
+      .single();
 
     if (error) throw new Error(error.message);
 
     // Step 4: Create a Git tag for the milestone (representing a stable version)
-    const milestoneTag = `v1.0-${milestoneName}`;
-    await git.addAnnotatedTag(milestoneTag, `Milestone: ${milestoneName} - ${milestoneNotes}`);
+    const safeName = milestoneName.replace(/\s+/g, "-");
+    const baseTag = `milestone-${roomId}-${safeName}`;
+    const { git } = await getGitRepo();
+    // Generate a unique tag to avoid collisions across test runs
+    const existing = await git.tags();
+    let milestoneTag = baseTag;
+    if (existing.all.includes(milestoneTag)) {
+      milestoneTag = `${baseTag}-${targetCommitId}`;
+    }
+    let i = 2;
+    while (existing.all.includes(milestoneTag)) {
+      milestoneTag = `${baseTag}-${targetCommitId}-${i++}`;
+    }
+    await git.addAnnotatedTag(
+      milestoneTag,
+      `Milestone: ${milestoneName} - ${milestoneNotes}`
+    );
 
     // Step 5: Return milestone and tag information
-    return {
+    const result = {
       message: "Milestone created successfully",
       milestone: data,
       tag: milestoneTag,
     };
+    log.info("vcs.milestone.created", {
+      roomId,
+      milestoneName,
+      commitId: targetCommitId,
+      tag: milestoneTag,
+    });
+    return result;
   } catch (err: any) {
-    console.error("Error creating milestone:", err.message || err);
+    log.error("vcs.milestone.create_failed", { error: err });
     throw new Error("Failed to create milestone: " + err.message);
   }
 };
@@ -78,19 +112,21 @@ export const getMilestones = async (roomId: string) => {
   try {
     // Fetch milestones for the given room
     const { data: milestones, error } = await supabase
-      .from("milestones")
+      .from("Milestones")
       .select("*")
       .eq("room_id", roomId)
       .order("created_at", { ascending: false });
 
     if (error) throw new Error(error.message);
 
-    return {
+    const result = {
       message: "Milestones fetched successfully",
       milestones,
     };
+    log.debug("vcs.milestone.list", { roomId, count: milestones?.length || 0 });
+    return result;
   } catch (err: any) {
-    console.error("Error fetching milestones:", err.message || err);
+    log.error("vcs.milestone.list_failed", { error: err });
     throw new Error("Failed to fetch milestones: " + err.message);
   }
 };
@@ -100,9 +136,9 @@ export const deleteMilestone = async (milestoneId: string, userId: string) => {
   try {
     // Fetch the milestone to ensure it exists and check ownership
     const { data: milestone, error: fetchError } = await supabase
-      .from("milestones")
+      .from("Milestones")
       .select("created_by")
-      .eq("id", milestoneId)
+      .eq("milestone_id", milestoneId)
       .single();
 
     if (fetchError) throw new Error(fetchError.message);
@@ -117,17 +153,19 @@ export const deleteMilestone = async (milestoneId: string, userId: string) => {
 
     // Delete the milestone
     const { error: deleteError } = await supabase
-      .from("milestones")
+      .from("Milestones")
       .delete()
-      .eq("id", milestoneId);
+      .eq("milestone_id", milestoneId);
 
     if (deleteError) throw new Error(deleteError.message);
 
-    return {
+    const result = {
       message: "Milestone deleted successfully",
     };
+    log.info("vcs.milestone.deleted", { milestoneId });
+    return result;
   } catch (err: any) {
-    console.error("Error deleting milestone:", err.message || err);
+    log.error("vcs.milestone.delete_failed", { error: err });
     throw new Error("Failed to delete milestone: " + err.message);
   }
 };

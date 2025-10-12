@@ -8,21 +8,34 @@ interface ServiceConfig {
 }
 
 // Available microservices
+const toMs = (v: string | undefined, fallback: number) => {
+  const n = v ? parseInt(v, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
 const services: Record<string, ServiceConfig> = {
   core: {
     name: "Core Service",
     baseUrl: process.env.CORE_SERVICE_URL || "http://localhost:3001",
-    timeout: 30000, // 30 seconds
+    timeout: toMs(process.env.CORE_SERVICE_TIMEOUT_MS, 30000), // 30s default
   },
   collaboration: {
     name: "Collaboration Service",
     baseUrl: process.env.COLLABORATION_SERVICE_URL || "http://localhost:5002",
-    timeout: 15000, // 15 seconds for real-time features
+    timeout: toMs(process.env.COLLABORATION_SERVICE_TIMEOUT_MS, 15000), // 15s default
   },
   execution: {
     name: "Execution Service",
     baseUrl: process.env.EXECUTION_SERVICE_URL || "http://localhost:4004",
-    timeout: 20000,
+    timeout: toMs(process.env.EXECUTION_SERVICE_TIMEOUT_MS, 20000),
+  },
+  "version-control": {
+    name: "Version Control Service",
+    // The VCS app mounts routes at /api/version-control, so include that prefix in baseUrl
+    // You can set VERSION_CONTROL_SERVICE_URL to the host:port (e.g., http://localhost:5000)
+    // and we'll append /api/version-control for correct routing.
+    baseUrl: `${process.env.VERSION_CONTROL_SERVICE_URL || "http://localhost:5000"}/api/version-control`,
+    timeout: toMs(process.env.VERSION_CONTROL_SERVICE_TIMEOUT_MS, 20000),
   },
   // Add more services here as they're created
   // auth: {

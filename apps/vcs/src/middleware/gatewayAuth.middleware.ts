@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { log } from "@ottrpad/logger";
 
 /**
  * Middleware to ensure requests come from the API Gateway
@@ -14,6 +15,19 @@ export const requireGatewayAuth = (
     return next();
   }
 
+  // Allow internal calls with shared secret
+  const internalSecret = req.headers["x-internal-secret"] as string | undefined;
+  const expected = process.env.VERSION_CONTROL_INTERNAL_SECRET;
+  if (expected && internalSecret === expected) {
+    (req as any).gatewayUser = {
+      id: "system-internal",
+      email: "system@internal",
+      originalUrl: req.originalUrl,
+    };
+    log.debug("vcs.gateway.internal", { path: req.path });
+    return next();
+  }
+
   // Check for the necessary gateway headers
   const gatewayUserId = req.headers["x-gateway-user-id"];
   const gatewayUserEmail = req.headers["x-gateway-user-email"];
@@ -21,7 +35,7 @@ export const requireGatewayAuth = (
 
   // If no gateway headers, this is a direct call and should be blocked
   if (!gatewayUserId || !gatewayUserEmail || !originalUrl) {
-    console.warn(`🚨 Direct access attempt blocked: ${req.method} ${req.path}`);
+    log.warn("vcs.gateway.blocked", { method: req.method, path: req.path });
 
     return res.status(403).json({
       error: "Forbidden",
@@ -41,9 +55,11 @@ export const requireGatewayAuth = (
     originalUrl: originalUrl,
   };
 
-  console.log(
-    `✅ Gateway-authenticated request: ${gatewayUserEmail} -> ${req.method} ${req.path}`
-  );
+  log.info("vcs.gateway.request", {
+    email: gatewayUserEmail,
+    method: req.method,
+    path: req.path,
+  });
 
   next();
 };

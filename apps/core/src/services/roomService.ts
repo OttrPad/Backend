@@ -219,6 +219,29 @@ export const getRoomsForUser = async (
  * Get room details by ID including user list
  */
 export const getRoomById = async (roomId: string) => {
+  // If roomId is not purely numeric, treat it as a room_code for convenience
+  const isNumericId = /^\d+$/.test(roomId);
+  if (!isNumericId) {
+    const { data, error } = await supabase
+      .from("Rooms")
+      .select(
+        `
+        *,
+        Room_users (
+          uid,
+          type,
+          joined_at
+        )
+      `
+      )
+      .eq("room_code", roomId)
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  const numericId = Number(roomId);
   const { data, error } = await supabase
     .from("Rooms")
     .select(
@@ -231,7 +254,7 @@ export const getRoomById = async (roomId: string) => {
       )
     `
     )
-    .eq("room_id", roomId)
+    .eq("room_id", numericId)
     .single();
 
   if (error) throw error;

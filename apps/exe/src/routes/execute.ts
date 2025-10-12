@@ -22,8 +22,17 @@ router.post("/room/:roomId/exec", async (req: Request, res: Response) => {
   const { code } = req.body as { code?: string };
   if (!code) return res.status(400).json({ error: "code is required" });
 
-  if (!rooms[roomId])
-    return res.status(400).json({ error: "Room not running" });
+  if (!rooms[roomId]) {
+    try {
+      // Opportunistically start the container if not running
+      const container = await startContainer(roomId);
+      rooms[roomId] = container;
+    } catch (e: any) {
+      return res
+        .status(400)
+        .json({ error: "Room not running", message: e?.message || e });
+    }
+  }
 
   try {
     const output = await execCode(roomId, code);

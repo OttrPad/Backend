@@ -1,17 +1,19 @@
-import express from "express";
+import express, { Express } from "express";
 import cors from "cors";
-import { versionControlRoutes } from "./src/routes/versionControl.routes";  // Importing version control routes
-import { requireGatewayAuth } from "./src/middleware/gatewayAuth.middleware";  // Importing gateway authentication middleware
+import { versionControlRoutes } from "./src/routes/versionControl.routes";
+import { requireGatewayAuth } from "./src/middleware/gatewayAuth.middleware";
+import { log } from "@ottrpad/logger";
 
-const app = express();
-const PORT = process.env.VERSION_CONTROL_PORT || 5000;  // Default port for version control service
+const app: Express = express();
+const PORT = process.env.VERSION_CONTROL_PORT || 5000;
 
 // Middleware
-app.use(cors());  // Enable CORS for cross-origin requests
-app.use(express.json());  // Parse incoming JSON requests
+app.use(cors());
+app.use(express.json());
 
-// Health check (accessible directly without gateway authentication)
+// Health check (accessible directly)
 app.get("/status", (req, res) => {
+  log.info("vcs.status", { path: req.path, ip: req.ip });
   res.json({
     service: "Version Control",
     status: "operational",
@@ -22,14 +24,20 @@ app.get("/status", (req, res) => {
 });
 
 // Protect all other routes - must come from the API Gateway
-app.use(requireGatewayAuth);  // Ensure requests come from the API Gateway
+app.use(requireGatewayAuth);
 
 // Protected routes
-app.use("/api/version-control", versionControlRoutes);  // Version control routes
+app.use("/api/version-control", versionControlRoutes);
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`🚀 Version Control Service running on http://localhost:${PORT}`);
-  console.log(`📋 Features: Commit Management, Milestone Management, Access Control`);
-  console.log(`🔗 API Gateway: http://localhost:4000/api/*`);
-});
+// Start the server only if run directly
+if (require.main === module) {
+  app.listen(PORT, () => {
+    log.info("vcs.start", { url: `http://localhost:${PORT}` });
+    log.info("vcs.features", {
+      features: ["Commit Management", "Milestone Management", "Access Control"],
+    });
+    log.info("vcs.gateway", { base: "http://localhost:4000/api/*" });
+  });
+}
+
+export default app;
