@@ -34,4 +34,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Core Service running on http://localhost:${PORT}`);
   console.log(`📋 Features: Room Management, User Management, Access Control`);
   console.log(`🔗 API Gateway: http://localhost:4000/api/*`);
+  // console.log(`🔑 NVIDIA API Key (preview): ${process.env.NVIDIA_API_KEY ? `${process.env.NVIDIA_API_KEY.slice(0, 8)}...` : "undefined"}`);
 });

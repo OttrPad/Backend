@@ -1,4 +1,5 @@
 import axios, { AxiosResponse } from "axios";
+import { log } from "console";
 import { Request, Response } from "express";
 
 // Service configuration
@@ -64,7 +65,7 @@ export class ServiceProxy {
       const targetUrl = `${service.baseUrl}${path}`;
 
       // Prepare headers (forward most headers but add some custom ones)
-      const headers = {
+      const headers: Record<string, any> = {
         ...req.headers,
         "x-forwarded-for": req.ip,
         "x-forwarded-host": req.get("host"),
@@ -74,14 +75,34 @@ export class ServiceProxy {
       };
 
       // Remove host header to avoid conflicts
-      delete headers.host;
+  delete headers.host;
+
+      const headerKeysToStrip = ["content-length", "transfer-encoding"];
+      headerKeysToStrip.forEach((key) => {
+        delete headers[key];
+        delete headers[key.toLowerCase()];
+        delete headers[key.toUpperCase()];
+      });
 
       console.log(
         `🔄 Proxying ${req.method} ${req.originalUrl} -> ${targetUrl}`
       );
 
+      // Trace resolved service configuration to catch mis-routed traffic
+      console.log("[ServiceProxy] Resolved service", {
+        serviceName,
+        targetUrl,
+        timeout: service.timeout,
+      });
+
+      console.log("[ServiceProxy] Forwarding body", {
+        hasBody: typeof req.body !== "undefined",
+        type: typeof req.body,
+        keys: req.body && typeof req.body === "object" ? Object.keys(req.body) : undefined,
+      });
+
       // Make the request to the microservice
-      const response: AxiosResponse = await axios({
+      const axiosConfig: any = {
         method: req.method as any,
         url: targetUrl,
         data: req.body,
@@ -89,7 +110,18 @@ export class ServiceProxy {
         params: req.query,
         timeout: service.timeout,
         validateStatus: () => true, // Don't throw on any status code
-      });
+      };
+
+      // Stringify JSON bodies explicitly to avoid raw-body retry aborts
+      if (req.body && typeof req.body === "object") {
+        axiosConfig.data = JSON.stringify(req.body);
+        axiosConfig.headers = {
+          ...headers,
+          "content-type": "application/json",
+        };
+      }
+
+      const response: AxiosResponse = await axios(axiosConfig);
 
       // Forward the response
       res.status(response.status);
@@ -116,6 +148,8 @@ export class ServiceProxy {
         res.status(504).json({
           error: "Gateway timeout",
           message: `Request to ${services[serviceName]?.name || serviceName} timed out`,
+         
+          
           service: serviceName,
         });
       } else {
