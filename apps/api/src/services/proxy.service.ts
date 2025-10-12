@@ -1,4 +1,3 @@
-import axios, { AxiosResponse } from "axios";
 import { Request, Response } from "express";
 
 // Service configuration
@@ -85,31 +84,78 @@ export class ServiceProxy {
         `🔄 Proxying ${req.method} ${req.originalUrl} -> ${targetUrl}`
       );
 
-      // Make the request to the microservice
-      const response: AxiosResponse = await axios({
-        method: req.method as any,
-        url: targetUrl,
-        data: req.body,
-        headers,
-        params: req.query,
-        timeout: service.timeout,
-        validateStatus: () => true, // Don't throw on any status code
+      // Build URL with query params
+      const urlObj = new URL(targetUrl);
+      const searchParams = new URLSearchParams(urlObj.search);
+      for (const [k, v] of Object.entries(req.query || {})) {
+        if (Array.isArray(v))
+          v.forEach((vv) => searchParams.append(k, String(vv)));
+        else if (v !== undefined) searchParams.set(k, String(v));
+      }
+      urlObj.search = searchParams.toString();
+
+      // Timeout with AbortController
+      const controller = new AbortController();
+      const timeout = setTimeout(
+        () => controller.abort(),
+        service.timeout || 20000
+      );
+
+      // Prepare fetch init
+      const init: RequestInit = {
+        method: req.method,
+        headers: headers as any,
+        signal: controller.signal,
+      };
+      // JSON bodies
+      if (
+        req.body !== undefined &&
+        req.method !== "GET" &&
+        req.method !== "HEAD"
+      ) {
+        init.body =
+          typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+        if (!(headers as any)["content-type"]) {
+          (init.headers as any)["content-type"] = "application/json";
+        }
+      }
+
+      const response = await fetch(urlObj.toString(), init).catch((err) => {
+        // Normalize abort/timeout errors
+        if ((err as any).name === "AbortError") {
+          const e: any = new Error("timeout");
+          (e.code as any) = "ECONNABORTED";
+          throw e;
+        }
+        throw err;
       });
+
+      clearTimeout(timeout);
 
       // Forward the response
       res.status(response.status);
 
       // Forward response headers (except some that might cause issues)
       const excludeHeaders = ["transfer-encoding", "connection", "keep-alive"];
-      Object.entries(response.headers).forEach(([key, value]) => {
+      response.headers.forEach((value, key) => {
         if (!excludeHeaders.includes(key.toLowerCase())) {
-          res.set(key, value as string);
+          res.set(key, value);
         }
       });
 
-      res.json(response.data);
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await response.json().catch(() => ({}));
+        res.json(data);
+      } else {
+        const text = await response.text();
+        res.send(text);
+      }
     } catch (error: any) {
-      console.error(`❌ Error proxying to ${serviceName}:`, error.message);
+      console.error(
+        `❌ Error proxying to ${serviceName}:`,
+        error?.message || error
+      );
 
       if (error.code === "ECONNREFUSED") {
         res.status(503).json({
@@ -117,7 +163,7 @@ export class ServiceProxy {
           message: `${services[serviceName]?.name || serviceName} is not responding`,
           service: serviceName,
         });
-      } else if (error.code === "ECONNABORTED") {
+      } else if (error.code === "ECONNABORTED" || error.name === "AbortError") {
         res.status(504).json({
           error: "Gateway timeout",
           message: `Request to ${services[serviceName]?.name || serviceName} timed out`,
@@ -140,20 +186,27 @@ export class ServiceProxy {
     const healthChecks = await Promise.allSettled(
       Object.entries(services).map(async ([name, config]) => {
         try {
-          const response = await axios.get(`${config.baseUrl}/status`, {
-            timeout: 5000,
-          });
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+          const response = await fetch(`${config.baseUrl}/status`, {
+            signal: controller.signal,
+          }).finally(() => clearTimeout(timeout));
+          let data: any = null;
+          const ct = response.headers.get("content-type") || "";
+          if (ct.includes("application/json"))
+            data = await response.json().catch(() => null);
+          else data = await response.text().catch(() => null);
           return {
             name,
-            status: "healthy",
-            response: response.data,
-            responseTime: response.headers["x-response-time"] || "unknown",
+            status: response.ok ? "healthy" : "unhealthy",
+            response: data,
+            responseTime: response.headers.get("x-response-time") || "unknown",
           };
         } catch (error: any) {
           return {
             name,
             status: "unhealthy",
-            error: error.message,
+            error: error?.message || String(error),
             lastChecked: new Date().toISOString(),
           };
         }
