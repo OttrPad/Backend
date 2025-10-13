@@ -2014,13 +2014,13 @@ router.post(
   }
 );
 
-router.post('/ai/suggest', verifySupabaseJWT, async (req: Request, res: Response) => {
- 
-  await serviceProxy.proxyRequest('core', '/ai/suggest', req, res);
-  console.log("response",res);
-  console.log("request",req);
-
-});
+router.post(
+  "/ai/suggest",
+  verifySupabaseJWT,
+  async (req: Request, res: Response) => {
+    await serviceProxy.proxyRequest("core", "/ai/suggest", req, res);
+  }
+);
 // =============================================================================
 // FUTURE MICROSERVICES
 // Add routes for other services here (AI Engine, etc.)

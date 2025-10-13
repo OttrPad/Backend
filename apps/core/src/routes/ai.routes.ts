@@ -1,16 +1,16 @@
 import { Router } from "express";
 import { GoogleGenAI } from "@google/genai";
-import { generateAiContentHandler, aiRateLimit } from "../controllers/aiChatController";
+import {
+  generateAiContentHandler,
+  aiRateLimit,
+} from "../controllers/aiChatController";
 import axios from "axios";
 import { spawnSync } from "child_process";
-
 
 const router: Router = Router();
 
 // --- Existing Gemini AI endpoint ---
 router.post("/chat", aiRateLimit, generateAiContentHandler);
-
-
 
 // // --- Inline code suggestion using NVIDIA Phi-4 Mini ---
 // router.post("/suggest", async (req, res) => {
@@ -18,7 +18,6 @@ router.post("/chat", aiRateLimit, generateAiContentHandler);
 
 //   try {
 //     console.log("🚀 Sending inline suggestion request to NVIDIA...");
-
 
 //     const response = await axios.post(
 //     "https://integrate.api.nvidia.com/v1/chat/completions",
@@ -41,7 +40,6 @@ router.post("/chat", aiRateLimit, generateAiContentHandler);
 //         timeout: 12000,
 //     }
 //     );
-
 
 //     const suggestion =
 //       response.data.choices?.[0]?.message?.content?.trim() || "";
@@ -84,7 +82,8 @@ router.post("/suggest", async (req, res) => {
 
   if (
     cursor !== undefined &&
-    (typeof cursor !== "object" || cursor === null ||
+    (typeof cursor !== "object" ||
+      cursor === null ||
       typeof cursor.line !== "number" ||
       typeof cursor.column !== "number")
   ) {
@@ -98,8 +97,21 @@ router.post("/suggest", async (req, res) => {
   let timeoutHandle: NodeJS.Timeout | undefined;
 
   try {
+    const apiKey = (process.env.GEMINI_API_KEY || "").trim();
+    if (!apiKey) {
+      console.warn(
+        "[AI Suggest] GEMINI_API_KEY not set; returning empty suggestions"
+      );
+      return res
+        .status(200)
+        .json({
+          items: [],
+          meta: { provider: "gemini", reason: "missing_api_key" },
+        });
+    }
+
     const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
+      apiKey,
     });
 
     const prompt = `
@@ -152,7 +164,10 @@ Respond ONLY with the next logical few lines of code (no explanations, no markdo
     const suggestion = await Promise.race([
       suggestionPromise,
       new Promise<never>((_, reject) => {
-        timeoutHandle = setTimeout(() => reject(new Error("gemini_timeout")), timeoutMs);
+        timeoutHandle = setTimeout(
+          () => reject(new Error("gemini_timeout")),
+          timeoutMs
+        );
       }),
     ]);
 
@@ -170,6 +185,7 @@ Respond ONLY with the next logical few lines of code (no explanations, no markdo
             },
           ]
         : [],
+      meta: { provider: "gemini", model: "gemini-2.0-flash-lite" },
     });
   } catch (err: any) {
     if (timeoutHandle) {
@@ -183,15 +199,29 @@ Respond ONLY with the next logical few lines of code (no explanations, no markdo
         .json({ error: "timeout", message: "Gemini took too long" });
     }
 
-    console.error("❌ Gemini suggestion error:", err.message);
+    // Try to detect rate limiting / quota exhaustion and degrade gracefully
+    const rawMsg = typeof err?.message === "string" ? err.message : String(err);
+    const statusCode = Number(err?.status || err?.code || 0);
+    if (
+      statusCode === 429 ||
+      /RESOURCE_EXHAUSTED|rate.?limit|quota/i.test(rawMsg) ||
+      /"code"\s*:\s*429/.test(rawMsg)
+    ) {
+      console.warn(
+        "⚠️ Gemini rate limited or quota exhausted; returning empty suggestions"
+      );
+      return res.status(200).json({
+        items: [],
+        meta: { provider: "gemini", reason: "rate_limited", raw: undefined },
+      });
+    }
+
+    console.error("❌ Gemini suggestion error:", rawMsg);
     res.status(500).json({
       error: "Gemini suggestion failed",
-      details: err.message,
+      details: rawMsg,
     });
   }
 });
-
-
-
 
 export default router;
