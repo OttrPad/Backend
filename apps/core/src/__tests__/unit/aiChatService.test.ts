@@ -1,4 +1,4 @@
-import AiChatService from '../services/aiChatService';
+import AiChatService from '../../services/aiChatService';
 
 //pnpm test --reporter=default
 
