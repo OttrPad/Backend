@@ -52,4 +52,4 @@ COPY package.json pnpm-workspace.yaml ./
 
 EXPOSE 5002
 
-CMD ["node", "apps/collab/dist/app.js"]
+CMD ["node", "apps/collab/dist/src/app.js"]

@@ -52,4 +52,4 @@ COPY package.json pnpm-workspace.yaml ./
 
 EXPOSE 4000
 
-CMD ["node", "apps/api/dist/app.js"]
+CMD ["node", "apps/api/dist/src/app.js"]
