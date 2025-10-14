@@ -1,0 +1,130 @@
+name: Deploy to Digital Ocean
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy Microservices
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Digital Ocean
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USERNAME }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          port: ${{ secrets.DO_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Starting deployment..."
+
+            # Navigate to app directory
+            cd /opt/ottrpad
+
+            # Pull latest changes
+            echo "📥 Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/${{ github.ref_name }}
+
+            # Create .env file from secrets if not exists
+            if [ ! -f .env ]; then
+              echo "📝 Creating .env file..."
+              cat > .env << EOF
+            # Supabase Configuration
+            SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+            SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}
+            SUPABASE_JWT_SECRET=${{ secrets.SUPABASE_JWT_SECRET }}
+
+            # Service URLs
+            CORE_SERVICE_URL=http://core:3001
+            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+
+            # API Configuration
+            API_PORT=4000
+            CORE_PORT=3001
+            COLLABORATION_HTTP_PORT=5002
+            EXE_PORT=4004
+            NODE_ENV=production
+
+            # Service-to-Service Authentication
+            GATEWAY_SHARED_SECRET=${{ secrets.GATEWAY_SECRET }}
+
+            # AI Service Configuration
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+
+            # Execution Service
+            EXE_STATEFUL=true
+
+            # Docker Configuration
+            DOCKER_HOST=unix:///var/run/docker.sock
+            EOF
+            fi
+
+            # Build and deploy with Docker Compose
+            echo "🔨 Building services..."
+            docker compose build --no-cache
+
+            echo "♻️  Restarting services..."
+            docker compose down
+            docker compose up -d
+
+            # Wait for services to be ready
+            echo "⏳ Waiting for services to start..."
+            sleep 15
+
+            # Health checks
+            echo "🏥 Running health checks..."
+
+            check_health() {
+              local service=$1
+              local url=$2
+              local max_attempts=10
+              local attempt=1
+              
+              while [ $attempt -le $max_attempts ]; do
+                if curl -f $url > /dev/null 2>&1; then
+                  echo "✅ $service is healthy"
+                  return 0
+                fi
+                echo "⏳ Waiting for $service (attempt $attempt/$max_attempts)..."
+                sleep 3
+                attempt=$((attempt + 1))
+              done
+              
+              echo "❌ $service health check failed"
+              return 1
+            }
+
+            check_health "API Gateway" "http://localhost:4000/health"
+            check_health "Core Service" "http://localhost:3001/status"
+            check_health "Collab Service" "http://localhost:5002/health"
+            check_health "Exe Service" "http://localhost:4004/health"
+
+            # Show running containers
+            echo "📊 Running containers:"
+            docker compose ps
+
+            # Clean up old images
+            echo "🧹 Cleaning up old images..."
+            docker image prune -f
+
+            echo "✅ Deployment complete!"
+
+      - name: Deployment Status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Deployment succeeded!"
+          else
+            echo "❌ Deployment failed!"
+            exit 1
+          fi
