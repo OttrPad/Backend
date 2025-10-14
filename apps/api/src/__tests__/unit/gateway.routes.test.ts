@@ -2,12 +2,12 @@ import express from 'express';
 import request from 'supertest';
 
 // Mock auth middleware to bypass
-jest.mock('../middleware/auth.middleware', () => ({
+jest.mock('../../middleware/auth.middleware', () => ({
   verifySupabaseJWT: (req: any, res: any, next: any) => next(),
 }));
 
-import gatewayRouter from '../routes/gateway.routes';
-import * as proxyModule from '../services/proxy.service';
+import gatewayRouter from '../../routes/gateway.routes';
+import * as proxyModule from '../../services/proxy.service';
 
 describe('gateway routes', () => {
   let app: express.Application;

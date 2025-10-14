@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { serviceProxy as singleton } from '../services/proxy.service';
+import { serviceProxy as singleton } from '../../services/proxy.service';
 import { Request, Response } from 'express';
 
 jest.mock('axios');
