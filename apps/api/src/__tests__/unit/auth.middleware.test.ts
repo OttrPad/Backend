@@ -1,4 +1,4 @@
-import { verifySupabaseJWT } from '../middleware/auth.middleware';
+import { verifySupabaseJWT } from '../../middleware/auth.middleware';
 import jwt from 'jsonwebtoken';
 
 // pnpm --filter api test

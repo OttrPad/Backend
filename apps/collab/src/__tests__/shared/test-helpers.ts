@@ -2,7 +2,7 @@ import { Server as HttpServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import { io as Client, Socket as ClientSocket } from "socket.io-client";
 import jwt from "jsonwebtoken";
-import RealtimeCollaborationService from "../../src/services/realtimeCollaborationService";
+import RealtimeCollaborationService from "../../services/realtimeCollaborationService";
 
 export interface TestUser {
   id: string;

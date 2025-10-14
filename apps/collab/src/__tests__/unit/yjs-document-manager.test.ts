@@ -1,4 +1,4 @@
-import { YjsDocumentManager } from "../../src/services/yjsDocumentManager.service";
+import { YjsDocumentManager } from "../../services/yjsDocumentManager.service";
 import { generators } from "../shared/test-helpers";
 
 describe("📄 YJS Document Manager Unit Tests", () => {
