@@ -213,6 +213,33 @@ router.delete(
   }
 );
 
+// Get active users in a notebook
+router.get(
+  "/notebooks/:notebookId/active-users",
+  verifyToken,
+  (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { notebookId } = req.params;
+      const yjsManager = getYjsManager(req);
+      const activeUsers = yjsManager.getActiveUsers(notebookId);
+
+      res.json({
+        success: true,
+        data: activeUsers,
+        count: activeUsers.length,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("Get active users error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to get active users",
+        details: (error as Error).message,
+      });
+    }
+  }
+);
+
 // Block management endpoints
 router.get("/notebooks/:notebookId/blocks", (req: Request, res: Response) => {
   try {

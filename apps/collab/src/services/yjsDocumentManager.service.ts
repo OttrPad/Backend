@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { Awareness } from "y-protocols/awareness";
 import {
   NotebookDocument,
   NotebookBlock,
@@ -8,6 +9,7 @@ import {
 
 export class YjsDocumentManager {
   private documents: Map<string, Y.Doc> = new Map(); // notebookId -> Y.Doc
+  private awarenessMap: Map<string, Awareness> = new Map(); // notebookId -> Awareness
   private rooms: Map<string, CollaborationRoom> = new Map(); // roomId -> room data
   private inMemoryNotebooks: Map<string, NotebookDocument[]> = new Map(); // roomId -> notebooks
 
@@ -25,6 +27,15 @@ export class YjsDocumentManager {
       this.initializeDocument(ydoc, notebookId);
     }
     return this.documents.get(notebookId)!;
+  }
+
+  getAwareness(notebookId: string): Awareness {
+    if (!this.awarenessMap.has(notebookId)) {
+      const ydoc = this.getDocument(notebookId);
+      const awareness = new Awareness(ydoc);
+      this.awarenessMap.set(notebookId, awareness);
+    }
+    return this.awarenessMap.get(notebookId)!;
   }
 
   /**
@@ -73,6 +84,9 @@ export class YjsDocumentManager {
     metadata.set("title", title);
     metadata.set("roomId", roomId);
     metadata.set("createdBy", createdBy);
+
+    // Initialize Awareness
+    this.getAwareness(notebookId);
 
     // Add to room
     this.addNotebookToRoom(roomId, notebookId);
@@ -142,6 +156,9 @@ export class YjsDocumentManager {
 
         // Clean up Y.Doc
         this.documents.delete(notebookId);
+
+        // Clean up Awareness
+        this.awarenessMap.delete(notebookId);
 
         // Remove from room
         this.removeNotebookFromRoom(roomId, notebookId);
@@ -320,6 +337,12 @@ export class YjsDocumentManager {
     return null;
   }
 
+  getActiveUsers(notebookId: string): any[] {
+    const awareness = this.awarenessMap.get(notebookId);
+    if (!awareness) return [];
+    return Array.from(awareness.getStates().values());
+  }
+
   /**
    * Clean up resources
    */
@@ -329,6 +352,7 @@ export class YjsDocumentManager {
     this.documents.clear();
     this.rooms.clear();
     this.inMemoryNotebooks.clear();
+    this.awarenessMap.clear();
     console.log("🧹 YjsDocumentManager cleaned up");
   }
 }

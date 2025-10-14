@@ -149,7 +149,7 @@ importers:
         specifier: ^1.5.4
         version: 1.5.4(yjs@13.6.27)
       yjs:
-        specifier: ^13.6.19
+        specifier: ^13.6.27
         version: 13.6.27
     devDependencies:
       '@types/cors':

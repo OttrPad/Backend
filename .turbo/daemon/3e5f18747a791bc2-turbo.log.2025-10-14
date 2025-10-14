@@ -1,0 +1,9 @@
+2025-10-14T10:25:48.127244Z  WARN turborepo_filewatch: failed to remove cookie file failed to remove file `D:\projects\Ottrpad\Backend\.turbo\cookies\.turbo-cookie`
+2025-10-14T10:25:48.556435Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-14T10:25:48.778654Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-14T10:25:49.101356Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-14T10:25:49.191154Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-14T10:25:49.194053Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-14T10:25:49.382734Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-14T10:25:49.388777Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-14T10:25:49.488040Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
