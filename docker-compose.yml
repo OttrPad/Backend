@@ -87,6 +87,7 @@ services:
       - SUPABASE_KEY=${SUPABASE_KEY}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL}
       - NODE_ENV=production
     restart: unless-stopped
     networks:
