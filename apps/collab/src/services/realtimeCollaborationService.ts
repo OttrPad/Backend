@@ -329,16 +329,15 @@ class RealtimeCollaborationService {
 
       const states = awareness.getStates();
 
-      // FILTER OUT NULL/UNDEFINED STATES
       const activeUsers = Array.from(states.entries())
-        .filter(([_, state]) => state && state.userId) // Filter out null/undefined states
+        .filter(([_, state]) => state && (state.userId || state.user))
         .map(([clientId, s]: [number, any]) => ({
-          clientId, // Include clientId for debugging
-          userId: s.userId,
-          email: s.email,
+          clientId,
+          userId: s.userId || s.user?.name,
+          email: s.email || "",
           blockId: s.blockId,
-          cursor: s.cursor,
-          hasSelections: !!s.selections,
+          cursor: s.cursor || s.selection || undefined,
+          hasSelections: !!(s.selection || s.selections),
         }));
 
       console.log(
