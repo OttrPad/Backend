@@ -13,49 +13,95 @@ export const createMilestone = async (
   userEmail?: string
 ) => {
   try {
+    console.log(`🎯 [createMilestone] Starting milestone creation:`, {
+      roomId,
+      milestoneName,
+      milestoneNotes,
+      userId,
+      commitId,
+      userEmail,
+    });
+
     // Step 1: Check if the user is the owner
     // Prefer Allowed_emails (aligns with role middleware); fallback to Room_users
+    let access: any = null;
     if (userEmail) {
-      const { data: access, error: accessErr } = await supabase
+      const { data: accessData, error: accessErr } = await supabase
         .from("Allowed_emails")
         .select("access_level")
         .eq("room_id", roomId)
         .eq("email", userEmail)
         .single();
-      if (accessErr) throw new Error(accessErr.message);
-      if (access?.access_level !== "owner") {
-        throw new Error("Only owners can create milestones.");
+      
+      console.log(`🔍 [createMilestone] Allowed_emails check:`, { accessData, accessErr: accessErr?.message });
+      
+      if (accessErr && accessErr.code !== 'PGRST116') { // PGRST116 = no rows
+        throw new Error(accessErr.message);
       }
-    } else {
-      const { data: userRoles, error: roleError } = await supabase
-        .from("Room_users")
-        .select("type")
-        .eq("room_id", roomId)
-        .eq("uid", userId)
-        .single();
-      if (roleError) throw new Error(roleError.message);
-      if (userRoles?.type !== "owner") {
-        throw new Error("Only owners can create milestones.");
+      access = accessData;
+      if (access && access.access_level !== "owner" && access.access_level !== "admin") {
+        throw new Error("Only owners and admins can create milestones.");
       }
+    }
+    
+    // Also check Room_users
+    const { data: userRoles, error: roleError } = await supabase
+      .from("Room_users")
+      .select("type")
+      .eq("room_id", roomId)
+      .eq("uid", userId)
+      .single();
+    
+    console.log(`🔍 [createMilestone] Room_users check:`, { userRoles, roleError: roleError?.message });
+    
+    if (roleError && roleError.code !== 'PGRST116') {
+      throw new Error(roleError.message);
+    }
+    if (userRoles && userRoles.type !== "owner" && userRoles.type !== "admin") {
+      throw new Error("Only owners and admins can create milestones.");
+    }
+    
+    // At least one check must pass
+    if ((!userRoles || (userRoles.type !== "owner" && userRoles.type !== "admin")) &&
+        (userEmail && (!access || (access.access_level !== "owner" && access.access_level !== "admin")))) {
+      throw new Error("Only owners and admins can create milestones.");
     }
 
     // Resolve the target commit: if provided use it; else use latest commit in room
     let targetCommitId = commitId;
     if (!targetCommitId) {
+      console.log(`🔍 [createMilestone] No commitId provided, fetching latest commit for room:`, roomId);
       const { data: latest, error: latestErr } = await supabase
-        .from("Commits")
+        .from("commits")
         .select("commit_id")
         .eq("room_id", roomId)
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
-      if (latestErr) throw new Error(latestErr.message);
-      if (!latest) throw new Error("No commits found for this room");
+      
+      console.log(`🔍 [createMilestone] Latest commit query result:`, { latest, latestErr: latestErr?.message });
+      
+      if (latestErr) throw new Error(`Failed to find latest commit: ${latestErr.message}`);
+      if (!latest) throw new Error("No commits found for this room. Please create a commit first.");
       targetCommitId = latest.commit_id as string;
     }
 
+    // Step 2: Verify we're on the main branch (milestones only allowed on main)
+    console.log(`� [createMilestone] Verifying main branch for milestone...`);
+    const { data: mainBranch, error: branchError } = await supabase
+      .from("branches")
+      .select("branch_id")
+      .eq("room_id", roomId)
+      .eq("is_main", true)
+      .single();
+    
+    if (branchError || !mainBranch) {
+      throw new Error("Could not find main branch for this room");
+    }
+
+    console.log(`�📝 [createMilestone] Inserting milestone into database (main branch only)...`);
     const { data, error } = await supabase
-      .from("Milestones")
+      .from("milestones")
       .insert([
         {
           room_id: roomId,
@@ -63,31 +109,50 @@ export const createMilestone = async (
           notes: milestoneNotes,
           created_by: userId,
           commit_id: targetCommitId,
+          branch_id: mainBranch.branch_id, // Explicitly set to main branch
         },
       ])
       .select()
       .single();
 
-    if (error) throw new Error(error.message);
+    console.log(`🔍 [createMilestone] Database insert result:`, { data, error: error?.message, errorDetails: error });
+
+    if (error) throw new Error(`Database insert failed: ${error.message}`);
 
     // Step 4: Create a Git tag for the milestone (representing a stable version)
-    const safeName = milestoneName.replace(/\s+/g, "-");
-    const baseTag = `milestone-${roomId}-${safeName}`;
-    const { git } = await getGitRepo();
-    // Generate a unique tag to avoid collisions across test runs
-    const existing = await git.tags();
-    let milestoneTag = baseTag;
-    if (existing.all.includes(milestoneTag)) {
-      milestoneTag = `${baseTag}-${targetCommitId}`;
+    let milestoneTag = "";
+    try {
+      const safeName = milestoneName.replace(/\s+/g, "-");
+      const baseTag = `milestone-${roomId}-${safeName}`;
+      const { git } = await getGitRepo();
+      
+      // Check if there are any commits in the repository
+      const hasCommits = await git.log().catch(() => null);
+      if (!hasCommits || !hasCommits.all || hasCommits.all.length === 0) {
+        console.warn(`⚠️ No commits in Git repository, skipping tag creation for milestone: ${milestoneName}`);
+        milestoneTag = `${baseTag}-pending`;
+      } else {
+        // Generate a unique tag to avoid collisions
+        const existing = await git.tags();
+        milestoneTag = baseTag;
+        if (existing.all.includes(milestoneTag)) {
+          milestoneTag = `${baseTag}-${targetCommitId}`;
+        }
+        let i = 2;
+        while (existing.all.includes(milestoneTag)) {
+          milestoneTag = `${baseTag}-${targetCommitId}-${i++}`;
+        }
+        await git.addAnnotatedTag(
+          milestoneTag,
+          `Milestone: ${milestoneName} - ${milestoneNotes}`
+        );
+      }
+    } catch (gitErr: any) {
+      console.error("Failed to create Git tag for milestone:", gitErr);
+      log.warn("vcs.milestone.git_tag_failed", { error: gitErr, milestoneName });
+      // Don't fail the entire milestone creation if just the Git tag fails
+      milestoneTag = `milestone-${roomId}-${milestoneName.replace(/\s+/g, "-")}-notag`;
     }
-    let i = 2;
-    while (existing.all.includes(milestoneTag)) {
-      milestoneTag = `${baseTag}-${targetCommitId}-${i++}`;
-    }
-    await git.addAnnotatedTag(
-      milestoneTag,
-      `Milestone: ${milestoneName} - ${milestoneNotes}`
-    );
 
     // Step 5: Return milestone and tag information
     const result = {
@@ -112,10 +177,10 @@ export const getMilestones = async (roomId: string) => {
   try {
     // Fetch milestones for the given room
     const { data: milestones, error } = await supabase
-      .from("Milestones")
+      .from("milestones")
       .select("*")
       .eq("room_id", roomId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false});
 
     if (error) throw new Error(error.message);
 
@@ -136,7 +201,7 @@ export const deleteMilestone = async (milestoneId: string, userId: string) => {
   try {
     // Fetch the milestone to ensure it exists and check ownership
     const { data: milestone, error: fetchError } = await supabase
-      .from("Milestones")
+      .from("milestones")
       .select("created_by")
       .eq("milestone_id", milestoneId)
       .single();
@@ -153,7 +218,7 @@ export const deleteMilestone = async (milestoneId: string, userId: string) => {
 
     // Delete the milestone
     const { error: deleteError } = await supabase
-      .from("Milestones")
+      .from("milestones")
       .delete()
       .eq("milestone_id", milestoneId);
 

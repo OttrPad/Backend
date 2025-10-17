@@ -4,7 +4,6 @@ import {
   deleteRoom,
   findRoomByName,
   findRoomByCode,
-  getAllRooms,
   getRoomsForUser,
   getRoomById,
 } from "../services/roomService";
@@ -14,14 +13,15 @@ import {
   processUserJoinRoom,
 } from "../services/roomUserService";
 import { supabase } from "@packages/supabase";
+import { getGitRepo, writeSnapshotToRepo } from "../../../vcs/src/lib/git"; 
 
 export const createRoomHandler = async (req: Request, res: Response) => {
   try {
-    const { name, description, workspace_id } = req.body;
+    const { name, description, workspace_id } = req.body || {};
 
     // Get user info from API Gateway headers
-    const userId = req.headers["x-gateway-user-id"] as string;
-    const userEmail = req.headers["x-gateway-user-email"] as string;
+    const userId = req.headers["x-gateway-user-id"]?.toString();
+    const userEmail = req.headers["x-gateway-user-email"]?.toString();
 
     if (!name) return res.status(400).json({ error: "Room name is required" });
     if (workspace_id === undefined || workspace_id === null)
@@ -66,6 +66,90 @@ export const createRoomHandler = async (req: Request, res: Response) => {
 
     // Add the creator as admin to Room_users
     await addUserToRoom(room.room_id.toString(), userId, "admin");
+
+    // Create default file (main.py) in the database
+    const { data: defaultFile, error: fileError } = await supabase
+      .from("Room_files")
+      .insert([
+        {
+          room_id: room.room_id,
+          file_name: "main.py",
+          lang: "python",
+        },
+      ])
+      .select()
+      .single();
+
+    if (fileError) {
+      console.error("Error creating default file:", fileError);
+    } else {
+      console.log("Default file created:", defaultFile);
+    }
+
+    // Initialize Git repository and create a snapshot with default notebook
+    const { git, repoDir } = await getGitRepo();
+    console.log("Git repository initialized at:", repoDir);
+    
+    // Create default notebook with a welcome Python block
+    const defaultNotebookId = `notebook-${room.room_id}-default`;
+    const defaultBlocks = [
+      {
+        id: `block-welcome-${Date.now()}`,
+        lang: "python",
+        content: `# Welcome to ${room.name}!\n# This is your collaborative coding environment\n\nprint("Hello, OttrPad!")`,
+        position: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ];
+    
+    const snapshot = {
+      room_id: room.room_id,
+      notebook_id: defaultNotebookId,
+      name: room.name,
+      description: room.description,
+      workspace_id: room.workspace_id,
+      created_at: room.created_at,
+      created_by: room.created_by,
+      blocks: defaultBlocks,
+    };
+    
+    const filePath = await writeSnapshotToRepo(
+      repoDir,
+      room.room_id.toString(),
+      defaultNotebookId,
+      snapshot
+    );
+
+    await git.add(filePath);
+    await git.commit(`Initial commit for room ${room.name} (${room.room_id})`);
+    console.log("Initial Git commit created for room:", room.name);
+
+    // Initialize main branch for version control using internal call
+    try {
+      const vcsUrl = process.env.VERSION_CONTROL_SERVICE_URL || 'http://localhost:5000';
+      const response = await fetch(`${vcsUrl}/api/version-control/branches/initialize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-gateway-user-id': userId,
+          'x-internal-secret': process.env.INTERNAL_SECRET || 'dev-secret-key',
+        },
+        body: JSON.stringify({
+          roomId: room.room_id,
+          userId: userId,
+        }),
+      });
+
+      if (response.ok) {
+        console.log(`✅ Main branch initialized for room ${room.room_id}`);
+      } else {
+        const errorText = await response.text();
+        console.warn(`⚠️ Failed to initialize main branch: ${response.status} ${errorText}`);
+      }
+    } catch (branchError) {
+      console.warn(`⚠️ Could not initialize branch system for room ${room.room_id}:`, branchError);
+    }
 
     console.log(
       `✅ Room "${name}" (${room.room_code}) created by user ${userEmail} (${userId})`

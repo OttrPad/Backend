@@ -491,6 +491,61 @@ export class YjsDocumentManager {
   }
 
   /**
+   * Restore a notebook from a snapshot (e.g., from a hidden auto-commit)
+   */
+  restoreNotebookFromSnapshot(notebookId: string, snapshot: any): void {
+    const ydoc = this.getDocument(notebookId);
+    const blocks = ydoc.getMap("blocks");
+    const blockContent = ydoc.getMap("blockContent");
+
+    // Clear existing blocks
+    const existingBlockIds = Array.from(blocks.keys());
+    existingBlockIds.forEach((blockId) => {
+      blocks.delete(blockId);
+      blockContent.delete(blockId);
+    });
+
+    // Restore blocks from snapshot
+    if (snapshot.blocks && Array.isArray(snapshot.blocks)) {
+      snapshot.blocks.forEach((block: any, index: number) => {
+        const blockId = block.id || `block-${Date.now()}-${index}`;
+        
+        // Set block metadata
+        blocks.set(blockId, {
+          id: blockId,
+          type: block.lang === "markdown" ? "markdown" : "code",
+          language: block.lang || "python",
+          position: block.position !== undefined ? block.position : index,
+          createdAt: block.createdAt || Date.now(),
+          updatedAt: block.updatedAt || Date.now(),
+        } as any);
+
+        // Set block content
+        let ytext = blockContent.get(blockId) as Y.Text;
+        if (!ytext) {
+          ytext = new Y.Text();
+          blockContent.set(blockId, ytext as any);
+        }
+        
+        // Replace content
+        if ((ytext as any).length > 0) {
+          (ytext as any).delete(0, (ytext as any).length);
+        }
+        (ytext as any).insert(0, block.content || "");
+      });
+    }
+
+    // Update metadata
+    const metadata = ydoc.getMap("metadata");
+    metadata.set("updatedAt", Date.now());
+    metadata.set("restoredAt", Date.now());
+
+    // Bump activity
+    const nb = this.findNotebookSync(notebookId);
+    if (nb) this.bumpRoomActivity(nb.roomId);
+  }
+
+  /**
    * Clean up resources
    */
   destroy(): void {

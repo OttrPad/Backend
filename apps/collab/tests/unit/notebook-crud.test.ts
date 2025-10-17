@@ -12,6 +12,9 @@ import {
   AuthenticatedClient,
 } from "../shared/test-helpers";
 
+
+// pnpm test --runInBand --detectOpenHandles --verbose --testPathPattern "tests/unit"
+
 describe("Comprehensive Notebook CRUD & Broadcasting", () => {
   let server: TestServer;
 

@@ -3,7 +3,8 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src"
+
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "../vcs/src"],
   "references": [{ "path": "../../packages/supabase" }]
 }

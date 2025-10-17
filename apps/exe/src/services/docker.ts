@@ -53,6 +53,79 @@ const STREAM_BUILD_LOGS = /^(1|true)$/i.test(
   process.env.EXE_VENV_STREAM_BUILD_LOGS || ""
 );
 
+// Docker initialization state
+let dockerInitialized = false;
+let dockerInitPromise: Promise<void> | null = null;
+
+/**
+ * Initialize and verify Docker connection with retry logic
+ * This is especially important on Windows where Docker Desktop may take time to start
+ */
+export async function initializeDocker(maxRetries = 10, retryDelay = 2000): Promise<void> {
+  // Return existing initialization promise if already in progress
+  if (dockerInitPromise) {
+    return dockerInitPromise;
+  }
+
+  // Return immediately if already initialized
+  if (dockerInitialized) {
+    return Promise.resolve();
+  }
+
+  dockerInitPromise = (async () => {
+    let lastError: any = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Try to ping Docker daemon
+        await docker.ping();
+        dockerInitialized = true;
+        log.info("docker.initialized", { 
+          attempt, 
+          message: "Successfully connected to Docker daemon" 
+        });
+        return;
+      } catch (error: any) {
+        lastError = error;
+        const isLastAttempt = attempt === maxRetries;
+        
+        if (isLastAttempt) {
+          log.error("docker.init.failed", {
+            attempt,
+            maxRetries,
+            error: error.message || String(error),
+            message: "Failed to connect to Docker daemon. Please ensure Docker Desktop is running."
+          });
+        } else {
+          log.warn("docker.init.retry", {
+            attempt,
+            maxRetries,
+            error: error.message || String(error),
+            nextRetryIn: `${retryDelay}ms`
+          });
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+      }
+    }
+
+    throw new Error(
+      `Failed to initialize Docker after ${maxRetries} attempts. ` +
+      `Last error: ${lastError?.message || String(lastError)}. ` +
+      `Please ensure Docker Desktop is running.`
+    );
+  })();
+
+  return dockerInitPromise;
+}
+
+/**
+ * Check if Docker is initialized and ready
+ */
+export function isDockerReady(): boolean {
+  return dockerInitialized;
+}
+
 // Compute a stable hash for requirements content
 function normalizeRequirements(reqText: string): string {
   if (!reqText) return "";
@@ -414,6 +487,22 @@ export async function startContainer(roomId: string) {
     // Another start is in progress; wait for it and return the same container
     return startLocks[roomId];
   }
+  
+  // Ensure Docker is initialized before attempting to start container
+  if (!dockerInitialized) {
+    log.info("docker.lazy_init", { 
+      roomId, 
+      message: "Docker not initialized, attempting initialization now" 
+    });
+    try {
+      await initializeDocker();
+    } catch (error: any) {
+      throw new Error(
+        `Cannot start container: Docker is not available. ${error.message}`
+      );
+    }
+  }
+  
   const name = roomId.replace(/[^a-zA-Z0-9_.-]/g, "-");
   startLocks[roomId] = (async () => {
     try {

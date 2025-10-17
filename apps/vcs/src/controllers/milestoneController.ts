@@ -14,6 +14,15 @@ export const createMilestoneHandler = async (req: Request, res: Response) => {
     const userId = req.headers["x-gateway-user-id"] as string;
     const userEmail = req.headers["x-gateway-user-email"] as string | undefined;
 
+    console.log(`🎯 [createMilestoneHandler] Request received:`, {
+      roomId,
+      milestoneName,
+      milestoneNotes,
+      commitId,
+      userId,
+      userEmail,
+    });
+
     // Call the createMilestone service
     const result = await milestoneService.createMilestone(
       roomId,
@@ -24,8 +33,10 @@ export const createMilestoneHandler = async (req: Request, res: Response) => {
       userEmail
     );
 
+    console.log(`✅ [createMilestoneHandler] Milestone created successfully:`, result);
     res.status(201).json(result); // Return the milestone creation result
   } catch (err: any) {
+    console.error(`❌ [createMilestoneHandler] Error:`, err);
     log.error("vcs.milestone.create_error", { error: err });
     res
       .status(500)

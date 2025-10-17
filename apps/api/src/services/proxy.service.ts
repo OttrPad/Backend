@@ -1,3 +1,4 @@
+import axios, { AxiosResponse } from "axios";
 import { Request, Response } from "express";
 
 // Service configuration
@@ -81,7 +82,7 @@ export class ServiceProxy {
       const targetUrl = `${service.baseUrl}${path}`;
 
       // Prepare headers (forward most headers but add some custom ones)
-      const headers = {
+      const headers: Record<string, any> = {
         ...req.headers,
         "x-forwarded-for": req.ip,
         "x-forwarded-host": req.get("host"),
@@ -91,78 +92,59 @@ export class ServiceProxy {
       };
 
       // Remove host header to avoid conflicts
-      delete headers.host;
+  delete headers.host;
+
+      const headerKeysToStrip = ["content-length", "transfer-encoding"];
+      headerKeysToStrip.forEach((key) => {
+        delete headers[key];
+        delete headers[key.toLowerCase()];
+        delete headers[key.toUpperCase()];
+      });
 
       console.log(
         `🔄 Proxying ${req.method} ${req.originalUrl} -> ${targetUrl}`
       );
 
-      // Build URL with query params
-      const urlObj = new URL(targetUrl);
-      const searchParams = new URLSearchParams(urlObj.search);
-      for (const [k, v] of Object.entries(req.query || {})) {
-        if (Array.isArray(v))
-          v.forEach((vv) => searchParams.append(k, String(vv)));
-        else if (v !== undefined) searchParams.set(k, String(v));
-      }
-      urlObj.search = searchParams.toString();
-
-      // Timeout with AbortController
-      const controller = new AbortController();
-      const timeout = setTimeout(
-        () => controller.abort(),
-        service.timeout || 20000
-      );
-
-      // Prepare fetch init
-      const init: RequestInit = {
-        method: req.method,
-        headers: headers as any,
-        signal: controller.signal,
-      };
-      // JSON bodies
-      if (
-        req.body !== undefined &&
-        req.method !== "GET" &&
-        req.method !== "HEAD"
-      ) {
-        init.body =
-          typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-        if (!(headers as any)["content-type"]) {
-          (init.headers as any)["content-type"] = "application/json";
-        }
-      }
-
-      const response = await fetch(urlObj.toString(), init).catch((err) => {
-        // Normalize abort/timeout errors
-        if ((err as any).name === "AbortError") {
-          const e: any = new Error("timeout");
-          (e.code as any) = "ECONNABORTED";
-          throw e;
-        }
-        throw err;
+      // Trace resolved service configuration to catch mis-routed traffic
+      console.log("[ServiceProxy] Resolved service", {
+        serviceName,
+        targetUrl,
+        timeout: service.timeout,
       });
 
-      clearTimeout(timeout);
+      console.log("[ServiceProxy] Forwarding body", {
+        hasBody: typeof req.body !== "undefined",
+        type: typeof req.body,
+        keys: req.body && typeof req.body === "object" ? Object.keys(req.body) : undefined,
+      });
+
+      // Make the request to the microservice
+      const response: AxiosResponse = await axios({
+        method: req.method as any,
+        url: targetUrl,
+        data: req.body,
+        headers,
+        params: req.query,
+        timeout: service.timeout,
+        validateStatus: () => true, // Don't throw on any status code
+      });
 
       // Forward the response
       res.status(response.status);
 
       // Forward response headers (except some that might cause issues)
       const excludeHeaders = ["transfer-encoding", "connection", "keep-alive"];
-      response.headers.forEach((value, key) => {
+      Object.entries(response.headers).forEach(([key, value]) => {
         if (!excludeHeaders.includes(key.toLowerCase())) {
-          res.set(key, value);
+          res.set(key, String(value));
         }
       });
 
-      const contentType = response.headers.get("content-type") || "";
+      const contentType = response.headers["content-type"] || "";
       if (contentType.includes("application/json")) {
-        const data = await response.json().catch(() => ({}));
-        res.json(data);
+        res.json(response.data);
       } else {
-        const text = await response.text();
-        res.send(text);
+        res.send(response.data);
       }
     } catch (error: any) {
       console.error(
@@ -180,6 +162,8 @@ export class ServiceProxy {
         res.status(504).json({
           error: "Gateway timeout",
           message: `Request to ${services[serviceName]?.name || serviceName} timed out`,
+         
+          
           service: serviceName,
         });
       } else {

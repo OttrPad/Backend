@@ -212,9 +212,15 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.53.0
         version: 2.75.0
+      '@types/axios':
+        specifier: ^0.14.4
+        version: 0.14.4
       '@types/jsonwebtoken':
         specifier: ^9.0.10
         version: 9.0.10
+      axios:
+        specifier: ^1.11.0
+        version: 1.12.2
       cors:
         specifier: ^2.8.5
         version: 2.8.5
@@ -240,6 +246,9 @@ importers:
       '@types/node':
         specifier: ^18.19.121
         version: 18.19.129
+      dotenv-cli:
+        specifier: ^10.0.0
+        version: 10.0.0
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@18.19.129)(ts-node@10.9.2(@types/node@18.19.129)(typescript@5.9.3))
@@ -801,6 +810,10 @@ packages:
 
   '@tsconfig/node16@1.0.4':
     resolution: {integrity: sha512-vxhUy4J8lyeyinH7Azl1pdd43GJhZH/tP2weN8TntQblOY+A0XbT8DJk1/oCPuOOyg/Ja757rG0CgHcWC8OfMA==}
+
+  '@types/axios@0.14.4':
+    resolution: {integrity: sha512-9JgOaunvQdsQ/qW2OPmE5+hCeUB52lQSolecrFrthct55QekhmXEwT203s20RL+UHtCQc15y3VXpby9E7Kkh/g==}
+    deprecated: This is a stub types definition. axios provides its own type definitions, so you do not need this installed.
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -3538,6 +3551,12 @@ snapshots:
 
   '@tsconfig/node16@1.0.4': {}
 
+  '@types/axios@0.14.4':
+    dependencies:
+      axios: 1.12.2
+    transitivePeerDependencies:
+      - debug
+
   '@types/babel__core@7.20.5':
     dependencies:
       '@babel/parser': 7.28.4
@@ -3594,7 +3613,7 @@ snapshots:
       '@types/node': 18.19.129
       '@types/qs': 6.14.0
       '@types/range-parser': 1.2.7
-      '@types/send': 1.2.0
+      '@types/send': 0.17.5
 
   '@types/express-serve-static-core@5.1.0':
     dependencies:

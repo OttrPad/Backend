@@ -2014,6 +2014,13 @@ router.post(
   }
 );
 
+router.post(
+  "/ai/suggest",
+  verifySupabaseJWT,
+  async (req: Request, res: Response) => {
+    await serviceProxy.proxyRequest("core", "/ai/suggest", req, res);
+  }
+);
 // =============================================================================
 // FUTURE MICROSERVICES
 // Add routes for other services here (AI Engine, etc.)
@@ -2373,6 +2380,501 @@ router.delete(
       req,
       res
     );
+  }
+);
+
+// ============================================
+// Branch Management Routes
+// ============================================
+
+/**
+ * @swagger
+ * /api/version-control/branches:
+ *   post:
+ *     summary: Create a new branch
+ *     description: Creates a new branch in the given room
+ *     tags: [Version Control, Branches]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               roomId:
+ *                 type: string
+ *               branchName:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Branch created successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/version-control/branches", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("version-control", "/branches", req, res);
+});
+
+/**
+ * @swagger
+ * /api/version-control/branches/{roomId}:
+ *   get:
+ *     summary: Get all branches for a room
+ *     description: Returns all branches in the specified room
+ *     tags: [Version Control, Branches]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Branches fetched successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/version-control/branches/:roomId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/branches/${encodeURIComponent(req.params.roomId)}`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/branches/{roomId}/current:
+ *   get:
+ *     summary: Get current branch for user
+ *     description: Returns the branch currently checked out by the user
+ *     tags: [Version Control, Branches]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Current branch fetched
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/version-control/branches/:roomId/current",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/branches/${encodeURIComponent(req.params.roomId)}/current`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/branches/{roomId}/main:
+ *   get:
+ *     summary: Get main branch for a room
+ *     description: Returns the main branch of the specified room
+ *     tags: [Version Control, Branches]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Main branch fetched
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/version-control/branches/:roomId/main",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/branches/${encodeURIComponent(req.params.roomId)}/main`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/branches/{branchId}/checkout:
+ *   post:
+ *     summary: Checkout a branch
+ *     description: Switch the user to the specified branch
+ *     tags: [Version Control, Branches]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: branchId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Branch checked out successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/version-control/branches/:branchId/checkout",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/branches/${encodeURIComponent(req.params.branchId)}/checkout`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/branches/{branchId}/pull:
+ *   post:
+ *     summary: Pull changes from main branch
+ *     description: Merge changes from main branch into the specified branch
+ *     tags: [Version Control, Branches]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: branchId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the target branch to pull into
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - roomId
+ *             properties:
+ *               roomId:
+ *                 type: string
+ *               commitMessage:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Successfully pulled from main
+ *       409:
+ *         description: Pull has conflicts
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/version-control/branches/:branchId/pull",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/branches/${encodeURIComponent(req.params.branchId)}/pull`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/branches/{branchId}/push:
+ *   post:
+ *     summary: Push changes to main branch
+ *     description: Merge changes from the specified branch into main branch (requires owner/admin)
+ *     tags: [Version Control, Branches]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: branchId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the source branch to push from
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - roomId
+ *             properties:
+ *               roomId:
+ *                 type: string
+ *               commitMessage:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Successfully pushed to main
+ *       403:
+ *         description: Only owners and admins can push to main
+ *       409:
+ *         description: Push has conflicts
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/version-control/branches/:branchId/push",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/branches/${encodeURIComponent(req.params.branchId)}/push`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/branches/{branchId}:
+ *   delete:
+ *     summary: Delete a branch
+ *     description: Delete the specified branch (owner only)
+ *     tags: [Version Control, Branches]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: branchId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Branch deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.delete(
+  "/version-control/branches/:branchId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/branches/${encodeURIComponent(req.params.branchId)}`,
+      req,
+      res
+    );
+  }
+);
+
+// ============================================
+// Merge Management Routes
+// ============================================
+
+/**
+ * @swagger
+ * /api/version-control/merge:
+ *   post:
+ *     summary: Merge two branches
+ *     description: Merge source branch into target branch
+ *     tags: [Version Control, Merge]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               roomId:
+ *                 type: string
+ *               sourceBranchId:
+ *                 type: string
+ *               targetBranchId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Merge completed
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/version-control/merge", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("version-control", "/merge", req, res);
+});
+
+/**
+ * @swagger
+ * /api/version-control/merge/conflicts/{roomId}:
+ *   get:
+ *     summary: Get merge conflicts
+ *     description: Returns unresolved merge conflicts for the room
+ *     tags: [Version Control, Merge]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: roomId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Conflicts fetched
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/version-control/merge/conflicts/:roomId",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/merge/conflicts/${encodeURIComponent(req.params.roomId)}`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/merge/conflicts/{conflictId}/resolve:
+ *   post:
+ *     summary: Resolve a merge conflict
+ *     description: Set the resolution for a specific conflict
+ *     tags: [Version Control, Merge]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - name: conflictId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               resolution:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Conflict resolved
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/version-control/merge/conflicts/:conflictId/resolve",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest(
+      "version-control",
+      `/merge/conflicts/${encodeURIComponent(req.params.conflictId)}/resolve`,
+      req,
+      res
+    );
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/merge/apply:
+ *   post:
+ *     summary: Apply merge after resolving conflicts
+ *     description: Finalize the merge after all conflicts are resolved
+ *     tags: [Version Control, Merge]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               roomId:
+ *                 type: string
+ *               sourceBranchId:
+ *                 type: string
+ *               targetBranchId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Merge applied successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/version-control/merge/apply",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest("version-control", "/merge/apply", req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /api/version-control/merge/diff:
+ *   post:
+ *     summary: Get merge diff preview
+ *     description: Preview the changes that would be merged
+ *     tags: [Version Control, Merge]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               roomId:
+ *                 type: string
+ *               sourceBranchId:
+ *                 type: string
+ *               targetBranchId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Diff fetched
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/version-control/merge/diff",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest("version-control", "/merge/diff", req, res);
   }
 );
 

@@ -611,7 +611,7 @@ class RealtimeCollaborationService {
     }
   }
 
-  private handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
+  private async handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
     if (!socket.userId || !socket.userEmail) return;
 
     // Leave the previous room if any
@@ -661,12 +661,95 @@ class RealtimeCollaborationService {
     // Send existing notebooks to the new user
     this.sendNotebookHistory(socket, roomId);
 
+    // Check if there are any auto-saved hidden commits to restore
+    await this.restoreHiddenCommitsIfNeeded(roomId);
+
     // Ensure default notebook exists for the room
-    this.ensureDefaultNotebook(roomId, socket.userId, socket.userEmail);
+    await this.ensureDefaultNotebook(roomId, socket.userId, socket.userEmail);
 
     console.log(
       `✅ User ${socket.userEmail} joined collaboration room ${roomId}`
     );
+  }
+
+  /**
+   * Restore hidden auto-commits when users rejoin an idle room
+   */
+  private async restoreHiddenCommitsIfNeeded(roomId: string) {
+    try {
+      // Query VCS for hidden temp commits for this room's notebooks
+      const VERSION_CONTROL_BASE =
+        (process.env.VERSION_CONTROL_SERVICE_URL || "http://localhost:5000") +
+        "/api/version-control";
+      const INTERNAL_VCS_SECRET = process.env.VERSION_CONTROL_INTERNAL_SECRET || "";
+      
+      // Get all notebooks for this room
+      const notebooks = await this.yjsManager.getNotebooks(roomId);
+      
+      for (const notebook of notebooks) {
+        try {
+          // Check if there's a hidden temp commit for this notebook
+          const res = await fetch(
+            `${VERSION_CONTROL_BASE}/commits?notebookId=${notebook.id}&type=temp&limit=1`,
+            {
+              headers: {
+                "x-internal-secret": INTERNAL_VCS_SECRET,
+              },
+            }
+          );
+
+          if (res.ok) {
+            const data = await res.json();
+            const commits = data.commits || [];
+            
+            if (commits.length > 0) {
+              const latestTempCommit = commits[0];
+              console.log(
+                `🔄 Restoring hidden commit ${latestTempCommit.commit_id} for notebook ${notebook.id} in room ${roomId}`
+              );
+
+              // Fetch the commit snapshot
+              const snapshotRes = await fetch(
+                `${VERSION_CONTROL_BASE}/commits/${latestTempCommit.commit_id}/snapshot`,
+                {
+                  headers: {
+                    "x-internal-secret": INTERNAL_VCS_SECRET,
+                  },
+                }
+              );
+
+              if (snapshotRes.ok) {
+                const snapshot = await snapshotRes.json();
+                
+                // Restore the snapshot to the Yjs document
+                if (snapshot.blocks && Array.isArray(snapshot.blocks)) {
+                  // Apply the blocks to the Yjs document
+                  this.yjsManager.restoreNotebookFromSnapshot(notebook.id, snapshot);
+                  console.log(`✅ Restored ${snapshot.blocks.length} blocks to notebook ${notebook.id}`);
+                }
+
+                // Delete the hidden commit after restoration
+                await fetch(
+                  `${VERSION_CONTROL_BASE}/commits/${latestTempCommit.commit_id}`,
+                  {
+                    method: "DELETE",
+                    headers: {
+                      "x-internal-secret": INTERNAL_VCS_SECRET,
+                      "x-gateway-user-id": "internal-service",
+                    },
+                  }
+                );
+                console.log(`🗑️ Deleted hidden commit ${latestTempCommit.commit_id}`);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(`⚠️ Failed to restore hidden commit for notebook ${notebook.id}:`, err);
+        }
+      }
+    } catch (error) {
+      console.error("Error restoring hidden commits:", error);
+    }
   }
 
   private async ensureDefaultNotebook(
