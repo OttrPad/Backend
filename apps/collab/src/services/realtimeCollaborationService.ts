@@ -22,6 +22,7 @@ interface UserInfo {
 }
 
 interface RoomParticipants {
+  // Track by socketId to avoid overwriting when a user opens multiple tabs
   [roomId: string]: Map<string, UserInfo>;
 }
 
@@ -473,15 +474,18 @@ class RealtimeCollaborationService {
         return;
       }
 
-      // Find the room ID for the notebook
+      // Find the room ID for the notebook (scan participant values by userId)
       let roomId: string | null = null;
       for (const [currentRoomId, participants] of Object.entries(
         this.roomParticipants
       )) {
-        if (participants.has(socket.userId)) {
-          roomId = currentRoomId;
-          break;
+        for (const info of participants.values()) {
+          if (info.userId === socket.userId) {
+            roomId = currentRoomId;
+            break;
+          }
         }
+        if (roomId) break;
       }
 
       if (roomId) {
@@ -620,8 +624,10 @@ class RealtimeCollaborationService {
   private async handleJoinRoom(socket: AuthenticatedSocket, roomId: string) {
     if (!socket.userId || !socket.userEmail) return;
 
-    // Leave the previous room if any
-    // this.handleLeaveRoom(socket);
+    // Leave the previous room if it's different to avoid being in multiple rooms
+    if (socket.roomId && socket.roomId !== roomId) {
+      this.handleLeaveRoom(socket);
+    }
 
     // Join the new room
     socket.roomId = roomId;
@@ -645,7 +651,8 @@ class RealtimeCollaborationService {
       socketId: socket.id,
     };
 
-    this.roomParticipants[roomId].set(socket.userId, userInfo);
+    // Track by socketId to allow the same user to have multiple connections
+    this.roomParticipants[roomId].set(socket.id, userInfo);
 
     // Notify others in the room about the new user
     // const joinEvent: UserJoinEvent = {
@@ -687,11 +694,12 @@ class RealtimeCollaborationService {
       const VERSION_CONTROL_BASE =
         (process.env.VERSION_CONTROL_SERVICE_URL || "http://localhost:5000") +
         "/api/version-control";
-      const INTERNAL_VCS_SECRET = process.env.VERSION_CONTROL_INTERNAL_SECRET || "";
-      
+      const INTERNAL_VCS_SECRET =
+        process.env.VERSION_CONTROL_INTERNAL_SECRET || "";
+
       // Get all notebooks for this room
       const notebooks = await this.yjsManager.getNotebooks(roomId);
-      
+
       for (const notebook of notebooks) {
         try {
           // Check if there's a hidden temp commit for this notebook
@@ -707,7 +715,7 @@ class RealtimeCollaborationService {
           if (res.ok) {
             const data = await res.json();
             const commits = data.commits || [];
-            
+
             if (commits.length > 0) {
               const latestTempCommit = commits[0];
               console.log(
@@ -726,12 +734,17 @@ class RealtimeCollaborationService {
 
               if (snapshotRes.ok) {
                 const snapshot = await snapshotRes.json();
-                
+
                 // Restore the snapshot to the Yjs document
                 if (snapshot.blocks && Array.isArray(snapshot.blocks)) {
                   // Apply the blocks to the Yjs document
-                  this.yjsManager.restoreNotebookFromSnapshot(notebook.id, snapshot);
-                  console.log(`✅ Restored ${snapshot.blocks.length} blocks to notebook ${notebook.id}`);
+                  this.yjsManager.restoreNotebookFromSnapshot(
+                    notebook.id,
+                    snapshot
+                  );
+                  console.log(
+                    `✅ Restored ${snapshot.blocks.length} blocks to notebook ${notebook.id}`
+                  );
                 }
 
                 // Delete the hidden commit after restoration
@@ -745,12 +758,17 @@ class RealtimeCollaborationService {
                     },
                   }
                 );
-                console.log(`🗑️ Deleted hidden commit ${latestTempCommit.commit_id}`);
+                console.log(
+                  `🗑️ Deleted hidden commit ${latestTempCommit.commit_id}`
+                );
               }
             }
           }
         } catch (err) {
-          console.warn(`⚠️ Failed to restore hidden commit for notebook ${notebook.id}:`, err);
+          console.warn(
+            `⚠️ Failed to restore hidden commit for notebook ${notebook.id}:`,
+            err
+          );
         }
       }
     } catch (error) {
@@ -789,7 +807,7 @@ class RealtimeCollaborationService {
     }
   }
 
-  private handleLeaveRoom(socket: AuthenticatedSocket) {
+  private async handleLeaveRoom(socket: AuthenticatedSocket) {
     if (!socket.roomId || !socket.userId) return;
 
     const roomId = socket.roomId;
@@ -803,15 +821,45 @@ class RealtimeCollaborationService {
 
     socket.leave(roomId);
 
-    // Remove user from room participants
+    // Remove user from room participants (by socketId)
     if (this.roomParticipants[roomId]) {
-      this.roomParticipants[roomId].delete(socket.userId);
+      this.roomParticipants[roomId].delete(socket.id);
 
       // Clean up empty rooms
       if (this.roomParticipants[roomId].size === 0) {
         delete this.roomParticipants[roomId];
         delete this.chatHistory[roomId]; // Also clean up chat history
       }
+    }
+
+    // Proactively clean up awareness states for this user's socket in this room's notebooks
+    try {
+      const notebooks = await this.yjsManager.getNotebooks(roomId);
+      for (const nb of notebooks) {
+        const awareness = this.awarenessMap.get(nb.id);
+        if (!awareness) continue;
+        const states = awareness.getStates();
+        const clientIdsToRemove: number[] = [];
+        states.forEach((state: any, clientId: number) => {
+          if (state?.userId === socket.userId) {
+            clientIdsToRemove.push(clientId);
+          }
+        });
+        if (clientIdsToRemove.length > 0) {
+          // Remove from server awareness to avoid stale states
+          try {
+            (awareness as any).removeStates?.(clientIdsToRemove, "disconnect");
+          } catch {}
+          const update = encodeAwarenessUpdate(awareness, clientIdsToRemove);
+          const updateBase64 = Buffer.from(update).toString("base64");
+          this.io.to(roomId).emit("awareness-update", {
+            notebookId: nb.id,
+            update: updateBase64,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("⚠️ Awareness cleanup on leave failed:", err);
     }
 
     // Notify others about user leaving
@@ -849,6 +897,10 @@ class RealtimeCollaborationService {
 
         // Remove them using the proper Awareness API
         if (clientIdsToRemove.length > 0) {
+          // Remove from server awareness
+          try {
+            (awareness as any).removeStates?.(clientIdsToRemove, "disconnect");
+          } catch {}
           // Encode the removal update
           const update = encodeAwarenessUpdate(awareness, clientIdsToRemove);
           const updateBase64 = Buffer.from(update).toString("base64");
@@ -1027,17 +1079,21 @@ class RealtimeCollaborationService {
   }
 
   public kickUserFromRoom(roomId: string, userId: string, reason?: string) {
-    const userInfo = this.roomParticipants[roomId]?.get(userId);
-    if (userInfo) {
-      const socket = this.io.sockets.sockets.get(userInfo.socketId);
-      if (socket) {
-        socket.emit("kicked-from-room", {
-          roomId,
-          reason,
-          timestamp: Date.now(),
-        });
-        socket.leave(roomId);
-        this.handleLeaveRoom(socket as AuthenticatedSocket);
+    const participants = this.roomParticipants[roomId];
+    if (!participants) return;
+    for (const info of participants.values()) {
+      if (info.userId === userId) {
+        const sock = this.io.sockets.sockets.get(info.socketId);
+        if (sock) {
+          sock.emit("kicked-from-room", {
+            roomId,
+            reason,
+            timestamp: Date.now(),
+          });
+          sock.leave(roomId);
+          this.handleLeaveRoom(sock as AuthenticatedSocket);
+        }
+        break;
       }
     }
   }
