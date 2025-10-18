@@ -209,6 +209,7 @@ server {
 ```
 
 Notes:
+
 - Frontend should use domain-only URLs (no explicit ports) with TLS: `https://api.ottrpad.dev`, `wss://api.ottrpad.dev`.
 - Backend must have `FRONTEND_URL` set to the site origin for CORS.
 - Ensure `SUPABASE_JWT_SECRET` matches your Supabase project JWT secret.
@@ -366,136 +367,35 @@ pnpm dev  # Shows logs from all services
 - Verify WebSocket authentication middleware
 - Monitor WebSocket event handlers and room management
 
-## 📈 Roadmap
-
-### ✅ Phase 1 - Core Infrastructure (Completed)
-
-- [x] **Microservices Architecture**: API Gateway, Core Service, Collaboration Service
-- [x] **JWT Authentication Layer**: Supabase integration with local verification
-- [x] **Real-time Communication**: Socket.IO with room-based messaging
-- [x] **API Documentation**: Swagger UI with interactive testing
-- [x] **Health Monitoring**: Service health checks and status endpoints
-- [x] **Room Management**: Full CRUD operations for collaboration rooms
-
-### 🚧 Phase 2 - Enhanced Collaboration (In Progress)
-
-- [ ] **Persistent Chat History**: Database storage for message history
-- [ ] **Advanced Code Sync**: Enhanced Yjs integration with conflict resolution
-- [ ] **File Sharing**: Collaborative file uploads and management
-- [ ] **Presence Indicators**: Advanced user presence and cursor tracking
-- [ ] **Permission System**: Granular room permissions (read, write, admin)
-- [ ] **Rate Limiting**: Request throttling and abuse prevention
-
-### 🔮 Phase 3 - Scalability & Performance (Planned)
-
-- [ ] **Redis Integration**: Session management and multi-instance scaling
-- [ ] **Message Queues**: Event processing optimization with Bull/BullMQ
-- [ ] **Database Clustering**: Read replicas and connection optimization
-- [ ] **CDN Integration**: Global WebSocket endpoints for low latency
-- [ ] **Performance Monitoring**: Metrics collection and alerting
-- [ ] **Load Balancing**: Horizontal scaling for high availability
-
-### 🚀 Phase 4 - Advanced Features (Future)
-
-- [ ] **Video/Audio Chat**: WebRTC integration for voice/video calls
-- [ ] **Screen Sharing**: Real-time screen sharing within rooms
-- [ ] **Plugin System**: Extensible architecture for custom features
-- [ ] **Analytics Dashboard**: Usage analytics and collaboration insights
-- [ ] **Mobile API**: Optimized endpoints for mobile applications
-- [ ] **AI Integration**: Code suggestions and collaborative AI features
-
-## 🏆 Tech Stack
-
-### Core Technologies
-
-- **🌐 Backend Framework**: Express.js with TypeScript
-- **🗄️ Database**: Supabase (PostgreSQL) with Row Level Security
-- **🔐 Authentication**: Supabase Auth with Google OAuth
-- **⚡ Real-time**: Socket.IO for WebSocket communication
-- **📝 Code Collaboration**: Yjs CRDT for conflict-free editing
-
-### Infrastructure
-
-- **📦 Monorepo**: Turborepo + pnpm workspaces
-- **🔧 Build System**: TypeScript compilation with hot reloading
-- **📚 Documentation**: Swagger/OpenAPI 3.0 with interactive UI
-- **🏗️ Architecture**: Microservices with API Gateway pattern
-- **🌍 Runtime**: Node.js 18+ with ESM support
-
-### Development Tools
-
-- **🔄 Process Management**: Nodemon for development hot reloading
-- **🎯 Type Safety**: Full TypeScript coverage across all services
-- **📊 Environment Management**: dotenv for configuration
-- **🧪 API Testing**: Built-in Swagger UI for interactive testing
-
 ## 📊 Service Communication Flow
 
 ```mermaid
 sequenceDiagram
-    participant F as Frontend
-    participant A as API Gateway
-    participant C as Core Service
-    participant S as Supabase
-    participant R as Collaboration Service
+  participant F as Frontend
+  participant A as API Gateway
+  participant C as Core Service
+  participant S as Supabase
+  participant R as Collaboration Service
 
-    Note over F,R: HTTP API Flow
-    F->>A: POST /api/rooms (JWT token)
-    A->>A: Verify JWT locally
-    A->>C: POST /rooms (with user context headers)
-    C->>S: Database operation
-    S->>C: Response
-    C->>A: Response
-    A->>F: Response
+  Note over F,R: HTTP API Flow
+  F->>A: POST /api/rooms (JWT token)
+  A->>A: Verify JWT locally
+  A->>C: POST /rooms (with user context headers)
+  C->>S: Database operation
+  S->>C: Response
+  C->>A: Response
+  A->>F: Response
 
-    Note over F,R: WebSocket Flow
-    F->>R: Connect ws://localhost:5002 (JWT token)
-    R->>R: Authenticate JWT
-    R->>F: Connection established
-    F->>R: join_room event
-    R->>F: room_joined event
-    F->>R: send_message event
-    R->>F: new_message event (broadcast to room)
+  Note over F,R: WebSocket Flow
+  F->>R: Connect ws://localhost:5002 (JWT token)
+  R->>R: Authenticate JWT
+  R->>F: Connection established
+  F->>R: join_room event
+  R->>F: room_joined event
+  F->>R: send_message event
+  R->>F: new_message event (broadcast to room)
 ```
 
-### 🔄 Request Flow Patterns
-
-#### HTTP API Requests
-
-1. **Frontend** → **API Gateway** (JWT in Authorization header)
-2. **API Gateway** → JWT validation → User context extraction
-3. **API Gateway** → **Core Service** (User context in headers)
-4. **Core Service** → **Supabase** (Database operations)
-5. **Response** flows back through the chain
-
-#### WebSocket Real-time Communication
-
-1. **Frontend** → **Collaboration Service** (Direct WebSocket connection)
-2. **Collaboration Service** → JWT validation on connection
-3. **Real-time events** → Authenticated users in specific rooms
-4. **Broadcasting** → All participants in the same room
-
-### 🏗️ Architecture Benefits
-
-- **🚀 Performance**: Direct WebSocket connections bypass API Gateway overhead
-- **🔒 Security**: JWT validation at every entry point
-- **📈 Scalability**: Services can be scaled independently
-- **🔧 Maintainability**: Clear separation of concerns
-- **🔍 Debugging**: Service-specific logs and health endpoints
-
-## 📜 License
+## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
-## 🙋‍♂️ Support
-
-- 📧 Email: support@ottrpad.com
-- 💬 Discord: [Join our community](https://discord.gg/ottrpad)
-- 📖 Documentation: [Full docs](./IMPLEMENTATION.md)
-- 🐛 Issues: [GitHub Issues](https://github.com/OttrPad/Backend/issues)
-
----
-
-**Built with ❤️ for collaborative coding**
-
-_Made by the OttrPad team - Empowering developers to code together, anywhere._
