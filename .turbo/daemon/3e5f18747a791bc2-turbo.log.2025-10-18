@@ -1,0 +1,18 @@
+2025-10-18T05:33:51.290791Z  WARN turborepo_filewatch: failed to wait for initial filesystem cookie: filewatching failed to start: failed to write cookie to D:\projects\Ottrpad\Backend\.turbo\cookies\.turbo-cookie: failed to create file `D:\projects\Ottrpad\Backend\.turbo\cookies\.turbo-cookie`
+2025-10-18T05:33:51.450178Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:51.457753Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:51.501557Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:51.541963Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:51.736295Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:51.802377Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:51.871369Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:51.885554Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:51.928318Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:51.931614Z  WARN turborepo_filewatch: failed to wait for initial filesystem cookie: filewatching failed to start: failed to write cookie to D:\projects\Ottrpad\Backend\.turbo\cookies\.turbo-cookie: failed to create file `D:\projects\Ottrpad\Backend\.turbo\cookies\.turbo-cookie`
+2025-10-18T05:33:52.050919Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:52.164561Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:52.249424Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:52.295975Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:33:52.342714Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:47:53.291235Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running
+2025-10-18T05:47:53.319211Z  WARN daemon_server: turborepo_lib::commands::daemon: daemon already running

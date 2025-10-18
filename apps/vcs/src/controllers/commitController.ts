@@ -1,4 +1,3 @@
-// src/version-control-service/controllers/commitController.ts
 import { Request, Response } from "express";
 import * as commitService from "../services/commitService"; // Importing commit service
 import { log } from "@ottrpad/logger";

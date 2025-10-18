@@ -1,16 +1,11 @@
-/**
- * Merge Controller
- * Handles HTTP requests for merge operations
- */
-
-import { Request, Response } from 'express';
+import { Request, Response } from "express";
 import {
   mergeBranches,
   getMergeConflicts,
   resolveConflict,
   applyMerge,
   getMergeDiff,
-} from '../services/mergeService';
+} from "../services/mergeService";
 
 /**
  * POST /merge
@@ -19,19 +14,21 @@ import {
 export async function mergeBranchesHandler(req: Request, res: Response) {
   try {
     const { sourceBranchId, targetBranchId, commitMessage } = req.body;
-    const userId = req.headers['x-gateway-user-id'] as string;
+    const userId = req.headers["x-gateway-user-id"] as string;
 
     if (!sourceBranchId || !targetBranchId) {
       return res.status(400).json({
-        error: 'sourceBranchId and targetBranchId are required',
+        error: "sourceBranchId and targetBranchId are required",
       });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
-    console.log(`[MergeController] Merging ${sourceBranchId} into ${targetBranchId}`);
+    console.log(
+      `[MergeController] Merging ${sourceBranchId} into ${targetBranchId}`
+    );
 
     const result = await mergeBranches(
       sourceBranchId,
@@ -42,27 +39,27 @@ export async function mergeBranchesHandler(req: Request, res: Response) {
 
     if (result.error && !result.conflicts) {
       return res.status(500).json({
-        error: result.error.message || 'Failed to merge branches',
+        error: result.error.message || "Failed to merge branches",
       });
     }
 
     if (result.conflicts && result.conflicts.length > 0) {
       return res.status(409).json({
-        message: 'Merge has conflicts',
+        message: "Merge has conflicts",
         hasConflicts: true,
         conflicts: result.conflicts,
       });
     }
 
     res.json({
-      message: 'Branches merged successfully',
+      message: "Branches merged successfully",
       success: true,
       mergeCommitId: result.mergeCommitId,
     });
   } catch (error: any) {
-    console.error('[MergeController] Error merging branches:', error);
+    console.error("[MergeController] Error merging branches:", error);
     res.status(500).json({
-      error: error.message || 'Failed to merge branches',
+      error: error.message || "Failed to merge branches",
     });
   }
 }
@@ -77,7 +74,7 @@ export async function getConflictsHandler(req: Request, res: Response) {
     const { sourceBranchId, targetBranchId } = req.query;
 
     if (!roomId) {
-      return res.status(400).json({ error: 'roomId is required' });
+      return res.status(400).json({ error: "roomId is required" });
     }
 
     const { conflicts, error } = await getMergeConflicts(
@@ -88,15 +85,15 @@ export async function getConflictsHandler(req: Request, res: Response) {
 
     if (error) {
       return res.status(500).json({
-        error: error.message || 'Failed to get conflicts',
+        error: error.message || "Failed to get conflicts",
       });
     }
 
     res.json({ conflicts });
   } catch (error: any) {
-    console.error('[MergeController] Error getting conflicts:', error);
+    console.error("[MergeController] Error getting conflicts:", error);
     res.status(500).json({
-      error: error.message || 'Failed to get conflicts',
+      error: error.message || "Failed to get conflicts",
     });
   }
 }
@@ -109,16 +106,16 @@ export async function resolveConflictHandler(req: Request, res: Response) {
   try {
     const { conflictId } = req.params;
     const { resolution } = req.body;
-    const userId = req.headers['x-gateway-user-id'] as string;
+    const userId = req.headers["x-gateway-user-id"] as string;
 
     if (!conflictId || !resolution) {
       return res.status(400).json({
-        error: 'conflictId and resolution are required',
+        error: "conflictId and resolution are required",
       });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     console.log(`[MergeController] Resolving conflict ${conflictId}`);
@@ -131,18 +128,18 @@ export async function resolveConflictHandler(req: Request, res: Response) {
 
     if (error || !success) {
       return res.status(500).json({
-        error: error?.message || 'Failed to resolve conflict',
+        error: error?.message || "Failed to resolve conflict",
       });
     }
 
     res.json({
-      message: 'Conflict resolved successfully',
+      message: "Conflict resolved successfully",
       success: true,
     });
   } catch (error: any) {
-    console.error('[MergeController] Error resolving conflict:', error);
+    console.error("[MergeController] Error resolving conflict:", error);
     res.status(500).json({
-      error: error.message || 'Failed to resolve conflict',
+      error: error.message || "Failed to resolve conflict",
     });
   }
 }
@@ -154,19 +151,21 @@ export async function resolveConflictHandler(req: Request, res: Response) {
 export async function applyMergeHandler(req: Request, res: Response) {
   try {
     const { roomId, sourceBranchId, targetBranchId, commitMessage } = req.body;
-    const userId = req.headers['x-gateway-user-id'] as string;
+    const userId = req.headers["x-gateway-user-id"] as string;
 
     if (!roomId || !sourceBranchId || !targetBranchId) {
       return res.status(400).json({
-        error: 'roomId, sourceBranchId, and targetBranchId are required',
+        error: "roomId, sourceBranchId, and targetBranchId are required",
       });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
-    console.log(`[MergeController] Applying merge ${sourceBranchId} -> ${targetBranchId}`);
+    console.log(
+      `[MergeController] Applying merge ${sourceBranchId} -> ${targetBranchId}`
+    );
 
     const { success, mergeCommitId, error } = await applyMerge(
       Number(roomId),
@@ -178,19 +177,19 @@ export async function applyMergeHandler(req: Request, res: Response) {
 
     if (error || !success) {
       return res.status(500).json({
-        error: error?.message || 'Failed to apply merge',
+        error: error?.message || "Failed to apply merge",
       });
     }
 
     res.json({
-      message: 'Merge applied successfully',
+      message: "Merge applied successfully",
       success: true,
       mergeCommitId,
     });
   } catch (error: any) {
-    console.error('[MergeController] Error applying merge:', error);
+    console.error("[MergeController] Error applying merge:", error);
     res.status(500).json({
-      error: error.message || 'Failed to apply merge',
+      error: error.message || "Failed to apply merge",
     });
   }
 }
@@ -205,7 +204,7 @@ export async function getMergeDiffHandler(req: Request, res: Response) {
 
     if (!sourceBranchId || !targetBranchId) {
       return res.status(400).json({
-        error: 'sourceBranchId and targetBranchId are required',
+        error: "sourceBranchId and targetBranchId are required",
       });
     }
 
@@ -216,15 +215,15 @@ export async function getMergeDiffHandler(req: Request, res: Response) {
 
     if (error) {
       return res.status(500).json({
-        error: error.message || 'Failed to get merge diff',
+        error: error.message || "Failed to get merge diff",
       });
     }
 
     res.json({ diff });
   } catch (error: any) {
-    console.error('[MergeController] Error getting merge diff:', error);
+    console.error("[MergeController] Error getting merge diff:", error);
     res.status(500).json({
-      error: error.message || 'Failed to get merge diff',
+      error: error.message || "Failed to get merge diff",
     });
   }
 }

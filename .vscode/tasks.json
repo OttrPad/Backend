@@ -50,12 +50,25 @@
       }
     },
     {
+      "label": "VCS service",
+      "type": "shell",
+      "command": "pnpm dev --filter=vcs",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
       "label": "Run All Services",
       "dependsOn": [
         "API Service",
         "Core Service",
         "Collab Service",
-        "Exe Service"
+        "Exe Service",
+        "VCS service"
       ],
       "dependsOrder": "parallel"
     }
