@@ -1,403 +1,209 @@
-# Realtime Code Editor Backend
+# Ottrpad Backend
 
-A **microservices-based backend** for a collaborative realtime code editor built with Express.js, TypeScript, Socket.IO, and Supabase. The architecture consists of three specialized services that work together to provide a scalable, real-time collaborative coding experience.
+A microservices-based backend for the Ottrpad collaborative editor. Built with Node/Express and TypeScript, secured with Supabase JWT, and orchestrated via Turborepo and Docker.
 
-## 🏗️ Microservices Architecture
+## Architecture overview
 
 ```
-Frontend Application
-         ↓ (HTTP API Calls)
-   API Gateway (Port 4000)
-    ↓ (JWT Verification & Routing)
-         ↓
-    Core Service (Port 4001)
-         ↓
-    Supabase Database
-
-Frontend WebSocket
-         ↓ (Direct Connection)
-Collaboration Service (Port 5002)
-         ↓ (JWT Authentication)
-    Real-time Features
+             ┌───────────────────────────────────────────┐
+             │                 Frontend                  │
+             │  HTTPS (REST) + WSS (real-time)           │
+             └───────────────────────────────────────────┘
+                   │             ▲
+                   │             │
+            REST over HTTPS             │ WebSocket (Socket.IO / Yjs)
+                   │             │
+        ┌──────────────────────┴─────────────┴──────────────┐
+        │                  API Gateway (4000)               │
+        │  • Verifies Supabase JWT                          │
+        │  • Proxies requests to internal services           │
+        │  • Swagger at /api-docs                           │
+        └───────────────┬───────────────┬───────────────┬────┘
+               │               │               │
+              HTTP│           HTTP│           HTTP│
+               │               │               │
+    ┌──────────────────────────▼───┐  ┌───────▼────────────────────┐  ┌───────────────────────────▼───┐
+    │        Core (3001)           │  │        Exe (4004)           │  │        VCS (5000)            │
+    │ Rooms, users, workspaces     │  │ Code execution via Docker   │  │ Commits, milestones, timeline │
+    │ Supabase Postgres            │  │ Stateful per-room runtimes  │  │ Supabase + local repo data    │
+    └──────────────────────────────┘  └─────────────────────────────┘  └───────────────────────────────┘
+               ▲
+               │
+            ┌─────┴─────┐
+            │ Collab    │ (5002)
+            │ WebSockets│ Presence, chat, Yjs sync
+            └───────────┘
 ```
 
-### 🎯 Service Overview
+### Services at a glance
 
-| Service                                              | Port | Purpose               | Key Features                                        |
-| ---------------------------------------------------- | ---- | --------------------- | --------------------------------------------------- |
-| **[API Gateway](./apps/api/README.md)**              | 4000 | HTTP routing & auth   | JWT validation, request proxying, Swagger docs      |
-| **[Core Service](./apps/core/README.md)**            | 4001 | Business logic & data | Room management, user profiles, database operations |
-| **[Collaboration Service](./apps/collab/README.md)** | 5002 | Real-time features    | WebSocket chat, code sync, presence awareness       |
+- API Gateway (4000): HTTP entrypoint, CORS, JWT verification, reverse proxy, Swagger docs
+- Core (3001): Business logic (rooms, users, workspaces), Supabase access
+- Collab (5002): Real-time collaboration (Socket.IO/Yjs), presence, chat
+- Exe (4004): Code execution lifecycle (start/exec/stop/status) using Docker
+- VCS (5000): Versioning (commits, milestones, grouped timeline)
 
-## ✨ Features
+Ports reflect docker-compose and local dev defaults.
 
-### 🌐 API Gateway
+## Running locally
 
-- **🔐 JWT Authentication**: Local verification using Supabase JWT secrets
-- **� Request Proxying**: Intelligent routing to microservices
-- **📚 Swagger Documentation**: Interactive API explorer at `/api-docs`
-- **❤️ Health Monitoring**: System and service health checks
-- **🛡️ CORS Protection**: Configurable origin restrictions
+Prereqs: Node 18+, pnpm, Supabase project.
 
-### 🏢 Core Service
-
-- **🏠 Room Management**: Create, update, delete, and list collaboration rooms
-- **� User Management**: Profile management and user operations
-- **🔐 Access Control**: Room permissions and participant validation
-- **📊 Data Persistence**: Supabase database operations with RLS
-- **🔒 Service Authentication**: Secure inter-service communication
-
-### ⚡ Collaboration Service
-
-- **💬 Real-time Chat**: Instant messaging within rooms via WebSocket
-- **📝 Code Synchronization**: Collaborative editing with Yjs CRDT
-- **👥 Presence Awareness**: Live cursor tracking and user presence
-- **🎯 Event Broadcasting**: Custom real-time event system
-- **🔐 Secure WebSockets**: JWT authentication for all connections
-
-### 🔧 Shared Infrastructure
-
-- **📊 Monorepo Management**: Turborepo with pnpm workspaces
-- **🎯 TypeScript**: Full type safety across all services
-- **🔌 Socket.IO**: High-performance WebSocket communication
-- **🗄️ Supabase Integration**: PostgreSQL with real-time subscriptions
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Node.js 18+
-- pnpm
-- Supabase project
-
-### Installation
-
-1. **Clone and install dependencies**
-
-   ```bash
-   git clone <repository-url>
-   cd backend
-   pnpm install
-   ```
-
-2. **Configure environment**
-
-   ```bash
-   cp .env.example .env
-   # Edit .env with your Supabase credentials
-   ```
-
-3. **Start development servers**
-   ```bash
-   pnpm dev
-   ```
-
-### Services will be available at:
-
-- 🌐 **API Gateway**: http://localhost:4000
-- 📚 **API Documentation**: http://localhost:4000/api-docs
-- ❤️ **Health Check**: http://localhost:4000/health
-- ⚙️ **Core Service**: http://localhost:4001 (internal)
-- 🔌 **Collaboration WebSocket**: ws://localhost:5002
-- 💬 **Chat & Real-time**: Connect directly to port 5002
-
-## 🔧 Environment Setup
-
-### Required Environment Variables
+1) Install
 
 ```bash
-# Supabase Configuration
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_KEY=your_supabase_anon_key
-SUPABASE_JWT_SECRET=your_supabase_jwt_secret
-
-# Service Configuration
-API_PORT=4000
-CORE_PORT=4001
-COLLABORATION_HTTP_PORT=5002
-
-# Service URLs (for inter-service communication)
-CORE_SERVICE_URL=http://localhost:4001
-FRONTEND_URL=http://localhost:3000
-
-# Development Settings
-NODE_ENV=development
-```
-
-### 🔑 Getting Supabase JWT Secret
-
-1. Go to your Supabase project dashboard
-2. Navigate to **Settings > API**
-3. Copy the **"JWT Secret"** value
-4. Add it to your `.env` file as `SUPABASE_JWT_SECRET`
-
-## 📡 API Usage
-
-### HTTP API (via API Gateway)
-
-All HTTP API endpoints go through the API Gateway at `http://localhost:4000` and require JWT authentication:
-
-```bash
-curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-     http://localhost:4000/api/rooms
-```
-
-### WebSocket API (Direct Connection)
-
-Real-time features connect directly to the Collaboration Service:
-
-```javascript
-import { io } from "socket.io-client";
-
-const socket = io("ws://localhost:5002", {
-  auth: {
-    token: "Bearer YOUR_JWT_TOKEN",
-  },
-});
-
-// Join a room for real-time collaboration
-socket.emit("join_room", { roomId: "your-room-id" });
-
-// Send a chat message
-socket.emit("send_message", {
-  roomId: "your-room-id",
-  message: "Hello everyone!",
-});
-```
-
-### Available HTTP Endpoints
-
-| Method   | Endpoint                      | Description                | Auth Required | Service |
-| -------- | ----------------------------- | -------------------------- | ------------- | ------- |
-| `GET`    | `/health`                     | System health check        | ❌            | Gateway |
-| `GET`    | `/health/services`            | All services health status | ❌            | Gateway |
-| `GET`    | `/api/rooms`                  | List user's rooms          | ✅            | Core    |
-| `POST`   | `/api/rooms`                  | Create new room            | ✅            | Core    |
-| `GET`    | `/api/rooms/:id`              | Get room details           | ✅            | Core    |
-| `PUT`    | `/api/rooms/:id`              | Update room                | ✅            | Core    |
-| `DELETE` | `/api/rooms/:id`              | Delete room                | ✅            | Core    |
-| `GET`    | `/api/rooms/:id/participants` | Get room participants      | ✅            | Core    |
-| `GET`    | `/api/users/profile`          | Get current user profile   | ✅            | Core    |
-| `PUT`    | `/api/users/profile`          | Update user profile        | ✅            | Core    |
-
-### WebSocket Events
-
-| Event          | Direction | Description             | Payload                                |
-| -------------- | --------- | ----------------------- | -------------------------------------- |
-| `join_room`    | C→S       | Join collaboration room | `{ roomId: string }`                   |
-| `send_message` | C→S       | Send chat message       | `{ roomId: string, message: string }`  |
-| `code_change`  | C→S       | Broadcast code changes  | `{ roomId: string, delta: any }`       |
-| `new_message`  | S→C       | Receive chat message    | `{ roomId: string, message: Message }` |
-| `user_joined`  | S→C       | User joined room        | `{ roomId: string, user: User }`       |
-| `user_left`    | S→C       | User left room          | `{ roomId: string, userId: string }`   |
-
-### 🎮 Interactive Testing
-
-Visit http://localhost:4000/api-docs for **Swagger UI** with built-in authentication and testing capabilities.
-
-## 🏢 Project Structure
-
-```
-backend/
-├── apps/                          # Microservices
-│   ├── api/                       # 🌐 API Gateway (Port 4000)
-│   │   ├── src/
-│   │   │   ├── middleware/        # JWT authentication
-│   │   │   ├── routes/            # HTTP route definitions
-│   │   │   ├── services/          # Request proxying logic
-│   │   │   └── config/            # Swagger/OpenAPI config
-│   │   ├── package.json
-│   │   └── README.md              # 📖 API Gateway documentation
-│   │
-│   ├── core/                      # 🏢 Core Service (Port 4001)
-│   │   ├── src/
-│   │   │   ├── controllers/       # Business logic handlers
-│   │   │   ├── routes/            # HTTP route handlers
-│   │   │   ├── services/          # Data and business services
-│   │   │   ├── middleware/        # Service authentication
-│   │   │   └── lib/               # Supabase client config
-│   │   ├── package.json
-│   │   └── README.md              # 📖 Core Service documentation
-│   │
-│   └── collab/                    # ⚡ Collaboration Service (Port 5002)
-│       ├── src/
-│       │   ├── services/          # Socket.IO and real-time logic
-│       │   ├── routes/            # Collaboration HTTP endpoints
-│       │   └── middleware/        # WebSocket authentication
-│       ├── package.json
-│       └── README.md              # 📖 Collaboration Service docs
-│
-├── packages/                      # Shared packages
-│   ├── supabase/                  # 🗄️ Shared Supabase client
-│   │   ├── src/index.ts
-│   │   ├── package.json
-│   │   └── README.md              # 📖 Supabase package docs
-│   └── config/                    # Shared configurations
-│
-├── docs/                          # 📚 Documentation
-│   ├── FRONTEND_CHAT_GUIDE.md     # Frontend integration guide
-│   ├── FRONTEND_CHAT_MIGRATION.md # Migration instructions
-│   └── IMPLEMENTATION.md          # Detailed implementation docs
-│
-├── package.json                   # Root package configuration
-├── pnpm-workspace.yaml           # Workspace configuration
-├── turbo.json                    # Turborepo build pipeline
-└── README.md                     # 📖 This overview document
-```
-
-## 🔐 Security Features
-
-### Multi-Layer Authentication
-
-- **🎫 JWT Authentication**: Local verification using Supabase JWT secrets
-- **🔒 Service Isolation**: Inter-service authentication with service tokens
-- **🏠 Room-Level Access**: Granular permissions for collaboration rooms
-- **🌐 WebSocket Security**: JWT validation for all real-time connections
-
-### Data Protection
-
-- **🛡️ CORS Protection**: Configurable origin restrictions per service
-- **🔍 Request Validation**: Input sanitization and validation
-- **🚫 Error Handling**: Secure error responses without data leakage
-- **🔐 Header Injection**: Secure user context propagation between services
-
-### Database Security
-
-- **🗄️ Row Level Security**: Supabase RLS policies for data isolation
-- **🔑 Service Authentication**: Separate credentials for different operations
-- **📊 Audit Logging**: Request tracking and user activity monitoring
-
-## 🛠️ Development
-
-### Quick Development Commands
-
-```bash
-# 🚀 Start all services in development mode
-pnpm dev
-
-# 🔧 Start individual services
-pnpm dev:api    # API Gateway only
-pnpm dev:core   # Core Service only
-pnpm dev:collab # Collaboration Service only
-
-# 🏗️ Build all services
-pnpm build
-
-# 🧹 Clean and rebuild
-pnpm clean && pnpm build
-
-# 📦 Install dependencies
 pnpm install
 ```
 
-### Service-Specific Development
+2) Configure env
+
+Copy `.env.example` to `.env` and set values (see Env vars). All apps read `../../.env` in dev.
+
+3) Start all services
 
 ```bash
-# API Gateway (Port 4000)
-cd apps/api
-pnpm dev          # Hot reload development
-pnpm build        # Production build
-pnpm start        # Run built version
-
-# Core Service (Port 4001)
-cd apps/core
-pnpm dev          # Hot reload development
-pnpm build        # Production build
-pnpm start        # Run built version
-
-# Collaboration Service (Port 5002)
-cd apps/collab
-pnpm dev          # Hot reload development
-pnpm build        # Production build
-pnpm start        # Run built version
+pnpm dev
 ```
 
-### 🧪 Testing & Debugging
+Key URLs:
+- API: http://localhost:4000
+- Swagger: http://localhost:4000/api-docs
+- Collab WS: ws://localhost:5002
+- Core (internal): http://localhost:3001
+- Exe (internal): http://localhost:4004
+- VCS (internal): http://localhost:5000
+
+Run single service (example):
 
 ```bash
-# 📊 Health check for all services
-curl http://localhost:4000/health/services
-
-# 🔐 Test authentication flow
-curl -H "Authorization: Bearer JWT_TOKEN" \
-     http://localhost:4000/api/rooms
-
-# 💬 Test WebSocket connection
-# Use browser console or Socket.IO client
-const socket = io('ws://localhost:5002', {
-  auth: { token: 'Bearer JWT_TOKEN' }
-});
-
-# 📚 Interactive API testing
-open http://localhost:4000/api-docs
+cd apps/api && pnpm dev
 ```
 
-### 🏗️ Adding New Features
+## Run with Docker
 
-#### Adding HTTP Endpoints
-
-1. **Core Service**: Add business logic in `apps/core/src/controllers/`
-2. **API Gateway**: Add route in `apps/api/src/routes/gateway.routes.ts`
-3. **Documentation**: Update Swagger comments and service READMEs
-
-#### Adding WebSocket Events
-
-1. **Collaboration Service**: Add event handler in `realtimeCollaborationService.ts`
-2. **Client Integration**: Update frontend event listeners
-3. **Documentation**: Update WebSocket event tables in README
-
-#### Adding New Microservices
-
-1. **Create Service**: New directory in `apps/`
-2. **Gateway Integration**: Add routing in API Gateway
-3. **Configuration**: Update environment variables and scripts
-4. **Documentation**: Create service-specific README
-
-## 📋 Production Deployment
-
-### Docker Support (Coming Soon)
+Ensure `.env` contains production-ready values, then:
 
 ```bash
-# Build and run with Docker
-docker-compose up -d
+docker compose up -d --build
 ```
 
-### Environment Variables for Production
+Exposed ports:
+- 4000 (api), 3001 (core), 5002 (collab), 4004 (exe), 5000 (vcs)
 
-- Set `NODE_ENV=production`
-- Configure proper `FRONTEND_URL`
-- Use production Supabase credentials
-- Set up monitoring and logging
-- Configure rate limiting
+Persistent data:
+- `vcs` uses a named volume `vcs-data` (see `docker-compose.yml`).
 
-## 🤝 Contributing
+## Environment variables
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Add tests for new functionality
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+Minimum required (used across services — set in `.env`):
 
-## 📄 Documentation
+```
+# Supabase
+SUPABASE_URL=...                    # Project URL
+SUPABASE_KEY=...                    # Service key or anon key as required
+SUPABASE_JWT_SECRET=...             # From Supabase Settings > API
 
-### � Service Documentation
+# CORS / Frontend
+FRONTEND_URL=http://localhost:3000  # Your frontend origin in dev or prod site URL
 
-- **[🌐 API Gateway README](./apps/api/README.md)** - HTTP routing, authentication, and Swagger docs
-- **[🏢 Core Service README](./apps/core/README.md)** - Business logic, room management, and database operations
-- **[⚡ Collaboration Service README](./apps/collab/README.md)** - WebSocket communication, chat, and real-time features
-- **[🗄️ Supabase Package README](./packages/supabase/README.md)** - Shared database client and utilities
+# Shared/inter-service auth
+GATEWAY_SHARED_SECRET=...           # Used for trusted calls via API Gateway
+VERSION_CONTROL_INTERNAL_SECRET=... # VCS <-> Exe internal auth
 
-### 🔗 Integration Guides
+# Optional
+GEMINI_API_KEY=...                  # Used by core/collab if AI features enabled
 
-- **[� Frontend Chat Guide](./FRONTEND_CHAT_GUIDE.md)** - Complete frontend integration guide
-- **[🔄 Frontend Migration Guide](./FRONTEND_CHAT_MIGRATION.md)** - Migration from monolithic to microservices
-- **[🔧 Implementation Details](./IMPLEMENTATION.md)** - Detailed technical implementation
+# Service ports (override only if needed)
+API_PORT=4000
+CORE_PORT=3001
+COLLABORATION_HTTP_PORT=5002
+EXE_PORT=4004
+VERSION_CONTROL_PORT=5000
 
-### 🚀 Live Documentation
+# Inter-service URLs (API uses these to proxy)
+CORE_SERVICE_URL=http://localhost:3001
+COLLABORATION_SERVICE_URL=http://localhost:5002
+EXE_SERVICE_URL=http://localhost:4004
+VERSION_CONTROL_SERVICE_URL=http://localhost:5000
+```
 
-- **🌐 API Documentation**: http://localhost:4000/api-docs (when running)
+Notes:
+- The API Gateway enforces CORS by `FRONTEND_URL` and validates JWTs using `SUPABASE_JWT_SECRET`.
+- The Exe service needs Docker access; in Docker it mounts `/var/run/docker.sock`.
+
+## API and features
+
+### API Gateway (4000)
+- Verifies Supabase JWT via `verifySupabaseJWT`
+- Proxies REST to Core/Exe/VCS using `serviceProxy`
+- Swagger at `/api-docs`, health at `/health`
+
+Common routes (examples):
+- Workspaces: `GET /api/workspaces`, `GET /api/workspaces/:id`
+- Rooms: `POST /api/rooms`, `GET /api/rooms`, `GET/PUT/DELETE /api/rooms/:id`
+- Execution: `POST /api/execute/room/:roomId/start|exec|stop`, `GET /api/execute/room/:roomId/status`
+
+### Core (3001)
+- Rooms/users/workspaces; Supabase DB; service-level auth for internal calls.
+
+### Collab (5002)
+- Socket.IO/Yjs server for presence, chat, code sync; JWT-authenticated connections.
+
+### Exe (4004)
+- Manages per-room runtimes with Docker; optional stateful sessions via `EXE_STATEFUL=true`.
+
+### VCS (5000)
+- Commits/milestones/timeline grouping (no duplicate commits outside milestones).
+
+## Migrations
+
+SQL files live in `migrations/` (e.g., `branch_system.sql`). A helper script can run them against Supabase:
+
+```bash
+# Node/ts-node (from repo root)
+npx ts-node scripts/run-migration.ts
+
+# Windows PowerShell helper
+./run-migration.ps1
+```
+
+Ensure `SUPABASE_URL` and `SUPABASE_KEY` are set in `.env` before running.
+
+## Security model
+
+- Frontdoor JWT: API Gateway validates Supabase JWT for `/api/*` routes.
+- Inter-service: shared secrets (`GATEWAY_SHARED_SECRET`, `VERSION_CONTROL_INTERNAL_SECRET`) secure internal traffic.
+- CORS: locked to `FRONTEND_URL`.
+
+## Troubleshooting
+
+- 500 from `/api/*`: Check `SUPABASE_JWT_SECRET` is set on API and matches your Supabase project.
+- CORS errors: Ensure `FRONTEND_URL` exactly matches your site origin (protocol + host/port).
+- SSL issues (prod): Use TLS-terminated domains (no explicit ports) like `https://api.yourdomain` and `wss://api.yourdomain`.
+- Exe failures: Docker socket must be available; verify `/var/run/docker.sock` mount and daemon status.
+
+## Repository layout
+
+```
+Backend/
+├─ apps/
+│  ├─ api/     # Gateway (4000)
+│  ├─ core/    # Business (3001)
+│  ├─ collab/  # Realtime (5002)
+│  ├─ exe/     # Execution (4004)
+│  └─ vcs/     # Version control (5000)
+├─ packages/
+│  ├─ logger/
+│  └─ supabase/
+├─ migrations/
+├─ scripts/    # run-migration.ts
+├─ docker-compose.yml
+└─ README.md
+```
+
+## Contributing
+
+PRs welcome. Please include context, minimal repro steps, and tests where applicable.
 - **� OpenAPI Specification**: http://localhost:4000/api-docs.json
 - **❤️ Health Dashboard**: http://localhost:4000/health/services
 
