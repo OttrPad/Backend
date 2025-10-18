@@ -22,8 +22,7 @@ export const createMilestone = async (
       userEmail,
     });
 
-    // Step 1: Check if the user is the owner
-    // Prefer Allowed_emails (aligns with role middleware); fallback to Room_users
+    // Step 1: Check if the user is the owner/admin
     let access: any = null;
     if (userEmail) {
       const { data: accessData, error: accessErr } = await supabase
@@ -32,18 +31,26 @@ export const createMilestone = async (
         .eq("room_id", roomId)
         .eq("email", userEmail)
         .single();
-      
-      console.log(`🔍 [createMilestone] Allowed_emails check:`, { accessData, accessErr: accessErr?.message });
-      
-      if (accessErr && accessErr.code !== 'PGRST116') { // PGRST116 = no rows
+
+      console.log(`🔍 [createMilestone] Allowed_emails check:`, {
+        accessData,
+        accessErr: accessErr?.message,
+      });
+
+      if (accessErr && accessErr.code !== "PGRST116") {
+        // PGRST116 = no rows
         throw new Error(accessErr.message);
       }
       access = accessData;
-      if (access && access.access_level !== "owner" && access.access_level !== "admin") {
+      if (
+        access &&
+        access.access_level !== "owner" &&
+        access.access_level !== "admin"
+      ) {
         throw new Error("Only owners and admins can create milestones.");
       }
     }
-    
+
     // Also check Room_users
     const { data: userRoles, error: roleError } = await supabase
       .from("Room_users")
@@ -51,26 +58,38 @@ export const createMilestone = async (
       .eq("room_id", roomId)
       .eq("uid", userId)
       .single();
-    
-    console.log(`🔍 [createMilestone] Room_users check:`, { userRoles, roleError: roleError?.message });
-    
-    if (roleError && roleError.code !== 'PGRST116') {
+
+    console.log(`🔍 [createMilestone] Room_users check:`, {
+      userRoles,
+      roleError: roleError?.message,
+    });
+
+    if (roleError && roleError.code !== "PGRST116") {
       throw new Error(roleError.message);
     }
     if (userRoles && userRoles.type !== "owner" && userRoles.type !== "admin") {
       throw new Error("Only owners and admins can create milestones.");
     }
-    
+
     // At least one check must pass
-    if ((!userRoles || (userRoles.type !== "owner" && userRoles.type !== "admin")) &&
-        (userEmail && (!access || (access.access_level !== "owner" && access.access_level !== "admin")))) {
+    if (
+      (!userRoles ||
+        (userRoles.type !== "owner" && userRoles.type !== "admin")) &&
+      userEmail &&
+      (!access ||
+        (access.access_level !== "owner" && access.access_level !== "admin"))
+    ) {
       throw new Error("Only owners and admins can create milestones.");
     }
 
-    // Resolve the target commit: if provided use it; else use latest commit in room
+    // Step 2: Get the latest commit to link the milestone to
+    // If commitId is provided, use it; otherwise use the latest commit in the room
     let targetCommitId = commitId;
     if (!targetCommitId) {
-      console.log(`🔍 [createMilestone] No commitId provided, fetching latest commit for room:`, roomId);
+      console.log(
+        `🔍 [createMilestone] No commitId provided, fetching latest commit for room:`,
+        roomId
+      );
       const { data: latest, error: latestErr } = await supabase
         .from("commits")
         .select("commit_id")
@@ -78,28 +97,41 @@ export const createMilestone = async (
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
-      
-      console.log(`🔍 [createMilestone] Latest commit query result:`, { latest, latestErr: latestErr?.message });
-      
-      if (latestErr) throw new Error(`Failed to find latest commit: ${latestErr.message}`);
-      if (!latest) throw new Error("No commits found for this room. Please create a commit first.");
+
+      console.log(`🔍 [createMilestone] Latest commit query result:`, {
+        latest,
+        latestErr: latestErr?.message,
+      });
+
+      if (latestErr && latestErr.code !== "PGRST116") {
+        throw new Error(`Failed to find latest commit: ${latestErr.message}`);
+      }
+      if (!latest) {
+        throw new Error(
+          "No commits found for this room. Please create a commit before creating a milestone."
+        );
+      }
       targetCommitId = latest.commit_id as string;
     }
 
-    // Step 2: Verify we're on the main branch (milestones only allowed on main)
-    console.log(`� [createMilestone] Verifying main branch for milestone...`);
+    // Step 3: Verify we're on the main branch (milestones only allowed on main)
+    console.log(`📋 [createMilestone] Verifying main branch...`);
     const { data: mainBranch, error: branchError } = await supabase
       .from("branches")
       .select("branch_id")
       .eq("room_id", roomId)
       .eq("is_main", true)
       .single();
-    
+
     if (branchError || !mainBranch) {
       throw new Error("Could not find main branch for this room");
     }
 
-    console.log(`�📝 [createMilestone] Inserting milestone into database (main branch only)...`);
+    // Step 4: Insert the milestone into the database
+    // The milestone simply marks a point in time and groups all commits since the last milestone
+    console.log(
+      `📝 [createMilestone] Inserting milestone marker into database...`
+    );
     const { data, error } = await supabase
       .from("milestones")
       .insert([
@@ -108,31 +140,32 @@ export const createMilestone = async (
           name: milestoneName,
           notes: milestoneNotes,
           created_by: userId,
-          commit_id: targetCommitId,
-          branch_id: mainBranch.branch_id, // Explicitly set to main branch
+          commit_id: targetCommitId, // Link to the latest commit
+          branch_id: mainBranch.branch_id,
         },
       ])
       .select()
       .single();
 
-    console.log(`🔍 [createMilestone] Database insert result:`, { data, error: error?.message, errorDetails: error });
+    console.log(`🔍 [createMilestone] Database insert result:`, {
+      data,
+      error: error?.message,
+    });
 
     if (error) throw new Error(`Database insert failed: ${error.message}`);
 
-    // Step 4: Create a Git tag for the milestone (representing a stable version)
+    // Step 5: Optionally create a Git tag for tracking (non-critical)
     let milestoneTag = "";
     try {
       const safeName = milestoneName.replace(/\s+/g, "-");
       const baseTag = `milestone-${roomId}-${safeName}`;
       const { git } = await getGitRepo();
-      
-      // Check if there are any commits in the repository
+
       const hasCommits = await git.log().catch(() => null);
       if (!hasCommits || !hasCommits.all || hasCommits.all.length === 0) {
-        console.warn(`⚠️ No commits in Git repository, skipping tag creation for milestone: ${milestoneName}`);
+        console.warn(`⚠️ No commits in Git repository, skipping tag creation`);
         milestoneTag = `${baseTag}-pending`;
       } else {
-        // Generate a unique tag to avoid collisions
         const existing = await git.tags();
         milestoneTag = baseTag;
         if (existing.all.includes(milestoneTag)) {
@@ -149,7 +182,10 @@ export const createMilestone = async (
       }
     } catch (gitErr: any) {
       console.error("Failed to create Git tag for milestone:", gitErr);
-      log.warn("vcs.milestone.git_tag_failed", { error: gitErr, milestoneName });
+      log.warn("vcs.milestone.git_tag_failed", {
+        error: gitErr,
+        milestoneName,
+      });
       // Don't fail the entire milestone creation if just the Git tag fails
       milestoneTag = `milestone-${roomId}-${milestoneName.replace(/\s+/g, "-")}-notag`;
     }
@@ -180,7 +216,7 @@ export const getMilestones = async (roomId: string) => {
       .from("milestones")
       .select("*")
       .eq("room_id", roomId)
-      .order("created_at", { ascending: false});
+      .order("created_at", { ascending: false });
 
     if (error) throw new Error(error.message);
 

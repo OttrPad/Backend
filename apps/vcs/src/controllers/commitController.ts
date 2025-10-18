@@ -102,3 +102,23 @@ export const restoreCommitHandler = async (req: Request, res: Response) => {
       .json({ error: "Failed to restore commit", details: err.message || err });
   }
 };
+
+// Revert the latest commit in a room
+export const revertCommitHandler = async (req: Request, res: Response) => {
+  try {
+    const { roomId } = req.body as { roomId: string };
+    const userId = req.headers["x-gateway-user-id"] as string;
+
+    if (!roomId) {
+      return res.status(400).json({ error: "roomId is required" });
+    }
+
+    const result = await commitService.revertLatestCommit(roomId, userId);
+    res.status(200).json(result);
+  } catch (err: any) {
+    log.error("vcs.commit.revert_error", { error: err });
+    res
+      .status(500)
+      .json({ error: "Failed to revert commit", details: err.message || err });
+  }
+};

@@ -2181,6 +2181,55 @@ router.post("/version-control/restore", verifySupabaseJWT, async (req, res) => {
 
 /**
  * @swagger
+ * /api/version-control/revert:
+ *   post:
+ *     summary: Revert the latest commit
+ *     description: Marks the most recent commit in a room as hidden, removing it from the timeline. Only the commit author or room owner/admin can revert.
+ *     tags: [Version Control]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               roomId:
+ *                 type: string
+ *                 description: The room ID or room code
+ *     responses:
+ *       200:
+ *         description: Commit reverted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 revertedCommit:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     message:
+ *                       type: string
+ *                     created_at:
+ *                       type: string
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Not authorized to revert this commit
+ *       404:
+ *         description: No commits to revert
+ */
+router.post("/version-control/revert", verifySupabaseJWT, async (req, res) => {
+  await serviceProxy.proxyRequest("version-control", "/revert", req, res);
+});
+
+/**
+ * @swagger
  * /api/version-control/milestones/{roomId}:
  *   get:
  *     summary: Get milestones for a room
@@ -2415,9 +2464,13 @@ router.delete(
  *       401:
  *         description: Unauthorized
  */
-router.post("/version-control/branches", verifySupabaseJWT, async (req, res) => {
-  await serviceProxy.proxyRequest("version-control", "/branches", req, res);
-});
+router.post(
+  "/version-control/branches",
+  verifySupabaseJWT,
+  async (req, res) => {
+    await serviceProxy.proxyRequest("version-control", "/branches", req, res);
+  }
+);
 
 /**
  * @swagger
@@ -2838,7 +2891,12 @@ router.post(
   "/version-control/merge/apply",
   verifySupabaseJWT,
   async (req, res) => {
-    await serviceProxy.proxyRequest("version-control", "/merge/apply", req, res);
+    await serviceProxy.proxyRequest(
+      "version-control",
+      "/merge/apply",
+      req,
+      res
+    );
   }
 );
 

@@ -23,10 +23,7 @@ app.get("/status", (req, res) => {
   });
 });
 
-// Protect all other routes - must come from the API Gateway
-app.use(requireGatewayAuth);
-
-// Protected routes
+// Protected routes (gateway auth is applied in the routes file)
 app.use("/api/version-control", versionControlRoutes);
 
 // Start the server only if run directly

@@ -13,6 +13,7 @@ services:
       - CORE_SERVICE_URL=http://core:3001
       - COLLABORATION_SERVICE_URL=http://collab:5002
       - EXE_SERVICE_URL=http://exe:4004
+      - VERSION_CONTROL_SERVICE_URL=http://vcs:5000
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
@@ -23,6 +24,7 @@ services:
       - core
       - collab
       - exe
+      - vcs
     restart: unless-stopped
     networks:
       - ottrpad-network
@@ -118,6 +120,10 @@ services:
       - EXE_PORT=4004
       - EXE_STATEFUL=${EXE_STATEFUL:-true}
       - DOCKER_HOST=unix:///var/run/docker.sock
+      - CORE_SERVICE_URL=http://core:3001
+      - VERSION_CONTROL_SERVICE_URL=http://vcs:5000
+      - VERSION_CONTROL_INTERNAL_SECRET=${VERSION_CONTROL_INTERNAL_SECRET}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET}
       - NODE_ENV=production
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -138,6 +144,45 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  vcs:
+    build:
+      context: .
+      dockerfile: apps/vcs/Dockerfile
+    container_name: ottrpad-vcs
+    ports:
+      - "5000:5000"
+    environment:
+      - VERSION_CONTROL_PORT=5000
+      - VERSION_CONTROL_INTERNAL_SECRET=${VERSION_CONTROL_INTERNAL_SECRET}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+      - GATEWAY_SHARED_SECRET=${GATEWAY_SHARED_SECRET}
+      - NODE_ENV=production
+    volumes:
+      - vcs-data:/app/apps/vcs/data
+    restart: unless-stopped
+    networks:
+      - ottrpad-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:5000/status",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  vcs-data:
+    driver: local
 
 networks:
   ottrpad-network:
