@@ -277,6 +277,37 @@ export class YjsDocumentManager {
   }
 
   /**
+   * Update a block's language
+   */
+  updateBlockLanguage(
+    notebookId: string,
+    blockId: string,
+    language: string
+  ): boolean {
+    const ydoc = this.getDocument(notebookId);
+    const blocks = ydoc.getMap("blocks");
+
+    const block = blocks.get(blockId) as NotebookBlock;
+    if (!block) {
+      return false;
+    }
+
+    // Create a new block object with updated language (Yjs objects are read-only)
+    const updatedBlock: NotebookBlock = {
+      ...block,
+      language,
+      updatedAt: Date.now(),
+    };
+    blocks.set(blockId, updatedBlock);
+
+    // Activity bump
+    const nb = this.findNotebookSync(notebookId);
+    if (nb) this.bumpRoomActivity(nb.roomId);
+
+    return true;
+  }
+
+  /**
    * Get all blocks for a notebook, sorted by position
    */
   getBlocks(notebookId: string): NotebookBlock[] {

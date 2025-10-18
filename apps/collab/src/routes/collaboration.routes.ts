@@ -413,6 +413,64 @@ router.put(
   }
 );
 
+// Update block language
+router.put(
+  "/notebooks/:notebookId/blocks/:blockId/language",
+  verifyToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { notebookId, blockId } = req.params;
+      const { language } = req.body;
+      const yjsManager = getYjsManager(req);
+
+      if (!language) {
+        return res.status(400).json({
+          success: false,
+          error: "Language is required",
+        });
+      }
+
+      const success = yjsManager.updateBlockLanguage(
+        notebookId,
+        blockId,
+        language
+      );
+
+      if (success) {
+        // Broadcast the language change to all users in the room
+        const realtimeService = req.app.locals.realtimeService;
+        if (realtimeService) {
+          // Get the notebook to find the correct roomId
+          const notebook = await yjsManager.findNotebook(notebookId);
+          if (notebook) {
+            realtimeService.broadcastToRoom(notebook.roomId, "block:updated", {
+              notebookId,
+              blockId,
+              language,
+              updatedBy: req.user?.email,
+              timestamp: Date.now(),
+            });
+          }
+        }
+
+        res.json({
+          success: true,
+          message: "Block language updated successfully",
+        });
+      } else {
+        res.status(404).json({ success: false, error: "Block not found" });
+      }
+    } catch (error) {
+      console.error("Update block language error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to update block language",
+        details: (error as Error).message,
+      });
+    }
+  }
+);
+
 // Yjs document state endpoints
 router.get("/notebooks/:notebookId/state", (req: Request, res: Response) => {
   try {
