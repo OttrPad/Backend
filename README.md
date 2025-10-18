@@ -49,23 +49,24 @@ Ports reflect docker-compose and local dev defaults.
 
 Prereqs: Node 18+, pnpm, Supabase project.
 
-1) Install
+1. Install
 
 ```bash
 pnpm install
 ```
 
-2) Configure env
+2. Configure env
 
 Copy `.env.example` to `.env` and set values (see Env vars). All apps read `../../.env` in dev.
 
-3) Start all services
+3. Start all services
 
 ```bash
 pnpm dev
 ```
 
 Key URLs:
+
 - API: http://localhost:4000
 - Swagger: http://localhost:4000/api-docs
 - Collab WS: ws://localhost:5002
@@ -88,9 +89,11 @@ docker compose up -d --build
 ```
 
 Exposed ports:
+
 - 4000 (api), 3001 (core), 5002 (collab), 4004 (exe), 5000 (vcs)
 
 Persistent data:
+
 - `vcs` uses a named volume `vcs-data` (see `docker-compose.yml`).
 
 ## Environment variables
@@ -128,46 +131,87 @@ VERSION_CONTROL_SERVICE_URL=http://localhost:5000
 ```
 
 Notes:
+
 - The API Gateway enforces CORS by `FRONTEND_URL` and validates JWTs using `SUPABASE_JWT_SECRET`.
 - The Exe service needs Docker access; in Docker it mounts `/var/run/docker.sock`.
 
 ## API and features
 
 ### API Gateway (4000)
+
 - Verifies Supabase JWT via `verifySupabaseJWT`
 - Proxies REST to Core/Exe/VCS using `serviceProxy`
 - Swagger at `/api-docs`, health at `/health`
 
 Common routes (examples):
+
 - Workspaces: `GET /api/workspaces`, `GET /api/workspaces/:id`
 - Rooms: `POST /api/rooms`, `GET /api/rooms`, `GET/PUT/DELETE /api/rooms/:id`
 - Execution: `POST /api/execute/room/:roomId/start|exec|stop`, `GET /api/execute/room/:roomId/status`
 
 ### Core (3001)
+
 - Rooms/users/workspaces; Supabase DB; service-level auth for internal calls.
 
 ### Collab (5002)
+
 - Socket.IO/Yjs server for presence, chat, code sync; JWT-authenticated connections.
 
 ### Exe (4004)
+
 - Manages per-room runtimes with Docker; optional stateful sessions via `EXE_STATEFUL=true`.
 
 ### VCS (5000)
+
 - Commits/milestones/timeline grouping (no duplicate commits outside milestones).
 
-## Migrations
+## Health and diagnostics
 
-SQL files live in `migrations/` (e.g., `branch_system.sql`). A helper script can run them against Supabase:
+Each service exposes simple health endpoints (subject to change):
 
-```bash
-# Node/ts-node (from repo root)
-npx ts-node scripts/run-migration.ts
+- API Gateway: `GET /health`, `GET /health/services`, `GET /health/version`
+- Core: `GET /status` (internal)
+- Collab: `GET /health`
+- Exe: `GET /health`
+- VCS: `GET /status`
 
-# Windows PowerShell helper
-./run-migration.ps1
+Use `GET /health/services` on the gateway to see aggregated status and confirm inter-service connectivity.
+
+## Production deployment (outline)
+
+Typical setup is TLS termination at a public reverse proxy (e.g., Nginx) that forwards traffic to the API Gateway and Collab service:
+
+```
+# /etc/nginx/conf.d/ottrpad.conf (example)
+server {
+  listen 443 ssl http2;
+  server_name api.ottrpad.dev;
+
+  # ssl_certificate ...
+  # ssl_certificate_key ...
+
+  # REST → API Gateway
+  location / {
+    proxy_pass http://localhost:4000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  # WebSockets → Collab (Socket.IO)
+  location /socket.io/ {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_pass http://localhost:5002;
+  }
+}
 ```
 
-Ensure `SUPABASE_URL` and `SUPABASE_KEY` are set in `.env` before running.
+Notes:
+- Frontend should use domain-only URLs (no explicit ports) with TLS: `https://api.ottrpad.dev`, `wss://api.ottrpad.dev`.
+- Backend must have `FRONTEND_URL` set to the site origin for CORS.
+- Ensure `SUPABASE_JWT_SECRET` matches your Supabase project JWT secret.
 
 ## Security model
 
@@ -195,8 +239,7 @@ Backend/
 ├─ packages/
 │  ├─ logger/
 │  └─ supabase/
-├─ migrations/
-├─ scripts/    # run-migration.ts
+├─ scripts/
 ├─ docker-compose.yml
 └─ README.md
 ```
@@ -204,6 +247,7 @@ Backend/
 ## Contributing
 
 PRs welcome. Please include context, minimal repro steps, and tests where applicable.
+
 - **� OpenAPI Specification**: http://localhost:4000/api-docs.json
 - **❤️ Health Dashboard**: http://localhost:4000/health/services
 
