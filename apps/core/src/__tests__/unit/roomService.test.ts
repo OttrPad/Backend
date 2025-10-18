@@ -1,4 +1,4 @@
-import * as roomService from '../services/roomService';
+import * as roomService from '../../services/roomService';
 import { supabase } from '@packages/supabase';
 
 jest.mock('@packages/supabase', () => ({
@@ -29,7 +29,7 @@ describe('roomService', () => {
 
     (supabase.from as jest.Mock).mockImplementationOnce(() => selectChain).mockImplementationOnce(() => insertChain);
 
-    const result = await roomService.createRoom('My Room', 'user-1', 'desc');
+  const result = await roomService.createRoom('My Room', 'user-1', 42, 'desc');
     expect(result).toBeDefined();
     expect(result.room_id).toBe(123);
     expect(result.name).toBe('My Room');

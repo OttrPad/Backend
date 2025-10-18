@@ -1,0 +1,63 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "API Service",
+      "type": "shell",
+      "command": "pnpm dev --filter=api",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Core Service",
+      "type": "shell",
+      "command": "pnpm dev --filter=core",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Collab Service",
+      "type": "shell",
+      "command": "pnpm dev --filter=collab",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Exe Service",
+      "type": "shell",
+      "command": "pnpm dev --filter=exe",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Run All Services",
+      "dependsOn": [
+        "API Service",
+        "Core Service",
+        "Collab Service",
+        "Exe Service"
+      ],
+      "dependsOrder": "parallel"
+    }
+  ]
+}

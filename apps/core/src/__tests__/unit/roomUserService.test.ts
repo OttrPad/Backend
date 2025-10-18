@@ -1,4 +1,4 @@
-import * as roomUserService from '../services/roomUserService';
+import * as roomUserService from '../../services/roomUserService';
 import { supabase } from '@packages/supabase';
 
 jest.mock('@packages/supabase', () => ({

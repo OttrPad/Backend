@@ -1,4 +1,5 @@
 import axios, { AxiosResponse } from "axios";
+import { log } from "console";
 import { Request, Response } from "express";
 
 // Service configuration
@@ -119,7 +120,7 @@ export class ServiceProxy {
       });
 
       // Make the request to the microservice
-      const response: AxiosResponse = await axios({
+      const axiosConfig: any = {
         method: req.method as any,
         url: targetUrl,
         data: req.body,
@@ -127,7 +128,18 @@ export class ServiceProxy {
         params: req.query,
         timeout: service.timeout,
         validateStatus: () => true, // Don't throw on any status code
-      });
+      };
+
+      // Stringify JSON bodies explicitly to avoid raw-body retry aborts
+      if (req.body && typeof req.body === "object") {
+        axiosConfig.data = JSON.stringify(req.body);
+        axiosConfig.headers = {
+          ...headers,
+          "content-type": "application/json",
+        };
+      }
+
+      const response: AxiosResponse = await axios(axiosConfig);
 
       // Forward the response
       res.status(response.status);

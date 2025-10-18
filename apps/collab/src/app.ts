@@ -45,7 +45,7 @@ app.get("/health", (req, res) => {
 // Initialize realtime collaboration service
 const realtimeService = new RealtimeCollaborationService(httpServer);
 
-// Attach service to routes for access (simplified approach)
+// Attach service to routes for access
 app.locals.realtimeService = realtimeService;
 
 // API routes
@@ -99,23 +99,25 @@ async function runIdleReaper() {
   const now = Date.now();
   const rooms = yjs.getAllRooms();
   const GRACE_PERIOD_MS = 30000; // 30 seconds grace period for page reloads
-  
+
   for (const room of rooms) {
     const participantsCount =
       (realtimeService as any).getRoomParticipants?.(room.roomId)?.length || 0;
     const idleFor = now - (room.lastActivity || 0);
-    
+
     // Only reap if:
     // 1. No participants are connected AND
     // 2. Room has been idle for longer than TTL AND
     // 3. There has been some activity (lastActivity exists) AND
     // 4. Idle time is SIGNIFICANTLY longer than TTL (not just barely over)
     // This prevents reaping during brief disconnects (page reloads)
-    const isReallyIdle = idleFor > (ROOM_IDLE_TTL_MS + GRACE_PERIOD_MS);
-    
+    const isReallyIdle = idleFor > ROOM_IDLE_TTL_MS + GRACE_PERIOD_MS;
+
     if (participantsCount === 0 && room.lastActivity && isReallyIdle) {
       try {
-        console.log(`🧹 Reaping idle room ${room.roomId} (idle ${Math.round(idleFor/1000)}s, participants: ${participantsCount})`);
+        console.log(
+          `🧹 Reaping idle room ${room.roomId} (idle ${Math.round(idleFor / 1000)}s, participants: ${participantsCount})`
+        );
         // For each notebook in this room: export snapshot and create temp commit
         const roomNotebooks = await yjs.getNotebooks(room.roomId);
         for (const nb of roomNotebooks) {

@@ -1,4 +1,4 @@
-import * as allowedEmailService from '../services/allowedEmailService';
+import * as allowedEmailService from '../../services/allowedEmailService';
 import { supabase } from '@packages/supabase';
 
 jest.mock('@packages/supabase', () => ({

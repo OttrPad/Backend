@@ -12,49 +12,23 @@ const router: Router = Router();
 // --- Existing Gemini AI endpoint ---
 router.post("/chat", aiRateLimit, generateAiContentHandler);
 
-// // --- Inline code suggestion using NVIDIA Phi-4 Mini ---
-// router.post("/suggest", async (req, res) => {
-//   const { contextBefore, contextAfter, language } = req.body;
+const SUGGESTION_DEBOUNCE_MS = Number(
+  process.env.AI_SUGGEST_DEBOUNCE_MS || "1000"
+);
 
-//   try {
-//     console.log("🚀 Sending inline suggestion request to NVIDIA...");
+const suggestionCooldown = new Map<string, number>();
+const pruneCooldown = (now: number) => {
+  if (suggestionCooldown.size < 500) {
+    return;
+  }
 
-//     const response = await axios.post(
-//     "https://integrate.api.nvidia.com/v1/chat/completions",
-//     {
-//         model: "microsoft/phi-4-mini-instruct",
-//         messages: [
-//         {
-//             role: "user",
-//             content: `Continue this ${language} code logically:\n${contextBefore} [CURSOR] ${contextAfter}`,
-//         },
-//         ],
-//         temperature: 0.2,
-//         max_tokens: 60,
-//     },
-//     {
-//         headers: {
-//         Authorization: `Bearer ${process.env.NVIDIA_API_KEY}`,
-//         "Content-Type": "application/json",
-//         },
-//         timeout: 12000,
-//     }
-//     );
-
-//     const suggestion =
-//       response.data.choices?.[0]?.message?.content?.trim() || "";
-//     console.log("✅ NVIDIA response received:", suggestion);
-//     res.json({ suggestion });
-//     } catch (error: any) {
-//         console.error("❌ Inline suggestion failed:", error.message);
-
-//     if (error.code === "ECONNABORTED") {
-//       return res.status(504).json({ error: "timeout", message: "NVIDIA took too long" });
-//     }
-
-//     res.status(500).json({ error: "NVIDIA request failed", details: error.message });
-//   }
-// });
+  const cutoff = now - SUGGESTION_DEBOUNCE_MS * 10;
+  for (const [key, timestamp] of suggestionCooldown.entries()) {
+    if (timestamp < cutoff) {
+      suggestionCooldown.delete(key);
+    }
+  }
+};
 
 // --- Inline code suggestion using Google Gemini ---
 router.post("/suggest", async (req, res) => {
@@ -102,12 +76,10 @@ router.post("/suggest", async (req, res) => {
       console.warn(
         "[AI Suggest] GEMINI_API_KEY not set; returning empty suggestions"
       );
-      return res
-        .status(200)
-        .json({
-          items: [],
-          meta: { provider: "gemini", reason: "missing_api_key" },
-        });
+      return res.status(200).json({
+        items: [],
+        meta: { provider: "gemini", reason: "missing_api_key" },
+      });
     }
 
     const ai = new GoogleGenAI({

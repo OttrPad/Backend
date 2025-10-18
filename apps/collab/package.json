@@ -26,7 +26,7 @@
     "socket.io": "^4.8.1",
     "y-protocols": "^1.0.6",
     "y-websocket": "^1.5.4",
-    "yjs": "^13.6.19"
+    "yjs": "^13.6.27"
   },
   "devDependencies": {
     "@types/cors": "^2.8.13",

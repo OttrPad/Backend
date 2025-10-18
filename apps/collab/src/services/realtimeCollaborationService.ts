@@ -2,6 +2,12 @@ import { Server as SocketServer, Socket } from "socket.io";
 import { Server as HttpServer } from "http";
 import jwt from "jsonwebtoken";
 import { YjsDocumentManager } from "./yjsDocumentManager.service";
+import { Awareness } from "y-protocols/awareness";
+import * as Y from "yjs";
+import {
+  encodeAwarenessUpdate,
+  applyAwarenessUpdate,
+} from "y-protocols/awareness";
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -19,44 +25,6 @@ interface RoomParticipants {
   [roomId: string]: Map<string, UserInfo>;
 }
 
-interface CursorMoveEvent {
-  roomId: string;
-  userId: string;
-  userEmail: string;
-  position: { line: number; column: number };
-  timestamp: number;
-}
-
-interface SelectionChangeEvent {
-  roomId: string;
-  userId: string;
-  userEmail: string;
-  startPos: { line: number; column: number };
-  endPos: { line: number; column: number };
-  timestamp: number;
-}
-
-interface TypingIndicatorEvent {
-  userId: string;
-  userEmail: string;
-  position?: { line: number; column: number };
-  timestamp: number;
-}
-
-interface LanguageChangeEvent {
-  userId: string;
-  userEmail: string;
-  language: string;
-  timestamp: number;
-}
-
-interface UserJoinEvent {
-  roomId: string;
-  userId: string;
-  userEmail: string;
-  timestamp: number;
-}
-
 interface ChatMessage {
   uid: string;
   email: string;
@@ -69,6 +37,7 @@ class RealtimeCollaborationService {
   private roomParticipants: RoomParticipants = {};
   private chatHistory: { [roomId: string]: ChatMessage[] } = {};
   private yjsManager: YjsDocumentManager; // Add YJS integration
+  private awarenessMap: Map<string, Awareness> = new Map();
 
   // Configuration from environment variables
   private readonly maxChatMessageLength: number;
@@ -138,64 +107,6 @@ class RealtimeCollaborationService {
         this.handleGetRoomParticipants(socket);
       });
 
-      socket.on(
-        "cursor-move",
-        (data: {
-          position: { line: number; column: number };
-          notebookId?: string;
-          blockId?: string;
-        }) => {
-          this.handleCursorMove(socket, data);
-        }
-      );
-
-      socket.on(
-        "selection-change",
-        (data: {
-          startPos: { line: number; column: number };
-          endPos: { line: number; column: number };
-          notebookId?: string;
-          blockId?: string;
-        }) => {
-          this.handleSelectionChange(socket, data);
-        }
-      );
-
-      // User presence in blocks
-      socket.on(
-        "user-focus-block",
-        (data: { notebookId: string; blockId: string }) => {
-          this.handleUserFocusBlock(socket, data);
-        }
-      );
-
-      socket.on(
-        "user-blur-block",
-        (data: { notebookId: string; blockId: string }) => {
-          this.handleUserBlurBlock(socket, data);
-        }
-      );
-
-      // Additional code collaboration events
-      socket.on(
-        "typing-start",
-        (data: {
-          position: { line: number; column: number };
-          notebookId?: string;
-          blockId?: string;
-        }) => {
-          this.handleTypingStart(socket, data);
-        }
-      );
-
-      socket.on("typing-stop", () => {
-        this.handleTypingStop(socket);
-      });
-
-      socket.on("language-change", (data: { language: string }) => {
-        this.handleLanguageChange(socket, data);
-      });
-
       // YJS Document collaboration events (for CRDT conflict resolution)
       socket.on(
         "yjs-update",
@@ -207,6 +118,24 @@ class RealtimeCollaborationService {
       socket.on("request-yjs-state", (data: { notebookId: string }) => {
         this.handleRequestYjsState(socket, data);
       });
+
+      socket.on(
+        "awareness-update",
+        (data: { notebookId: string; update: string }) => {
+          this.handleAwarenessUpdate(socket, data);
+        }
+      );
+
+      socket.on(
+        "set-presence",
+        (data: {
+          notebookId: string;
+          blockId?: string;
+          cursor?: { line: number; column: number };
+        }) => {
+          this.handleSetPresence(socket, data);
+        }
+      );
 
       // Block content updates (PRIMARY method for block-level identification)
       socket.on(
@@ -387,6 +316,83 @@ class RealtimeCollaborationService {
     console.log(
       `📝 Block content changed in ${data.notebookId}:${data.blockId} by ${socket.userEmail}`
     );
+  }
+
+  private handleAwarenessUpdate(
+    socket: AuthenticatedSocket,
+    data: { notebookId: string; update: string }
+  ) {
+    try {
+      const awareness = this.getAwareness(data.notebookId);
+      const update = Buffer.from(data.update, "base64");
+      applyAwarenessUpdate(awareness, update, "remote");
+
+      const states = awareness.getStates();
+
+      const activeUsers = Array.from(states.entries())
+        .filter(([_, state]) => state && (state.userId || state.user))
+        .map(([clientId, s]: [number, any]) => ({
+          clientId,
+          userId: s.userId || s.user?.name,
+          email: s.email || "",
+          blockId: s.blockId,
+          cursor: s.cursor || s.selection || undefined,
+          hasSelections: !!(s.selection || s.selections),
+        }));
+
+      console.log(
+        `👥 Awareness update from ${socket.userEmail} (${socket.id}) in notebook ${data.notebookId}`
+      );
+      console.log("   Active users:", activeUsers);
+      console.log("   Total states (unfiltered):", states.size);
+
+      // Broadcast to others in the same room
+      socket.to(socket.roomId!).emit("awareness-update", {
+        notebookId: data.notebookId,
+        update: data.update,
+      });
+
+      console.log(
+        `📡 Broadcasted awareness to room ${socket.roomId} for notebook ${data.notebookId}`
+      );
+    } catch (err) {
+      console.error("⚠️ Awareness update error:", err);
+    }
+  }
+
+  private handleSetPresence(
+    socket: AuthenticatedSocket,
+    data: {
+      notebookId: string;
+      blockId?: string;
+      cursor?: { line: number; column: number };
+    }
+  ) {
+    if (!socket.roomId || !socket.userId || !socket.userEmail) {
+      console.warn("⚠️ setPresence called without room/user info");
+      return;
+    }
+
+    try {
+      const awareness = this.getAwareness(data.notebookId);
+
+      // Set local awareness state
+      const state = {
+        userId: socket.userId,
+        email: socket.userEmail,
+        blockId: data.blockId,
+        cursor: data.cursor,
+        updatedAt: Date.now(),
+      };
+
+      awareness.setLocalState(state);
+
+      console.log(
+        `👤 Presence updated for ${socket.userEmail} in ${data.notebookId}`
+      );
+    } catch (err) {
+      console.error("⚠️ setPresence error:", err);
+    }
   }
 
   private async handleCreateNotebook(
@@ -822,66 +828,48 @@ class RealtimeCollaborationService {
     );
   }
 
-  private handleCursorMove(
-    socket: AuthenticatedSocket,
-    data: {
-      position: { line: number; column: number };
-      notebookId?: string;
-      blockId?: string;
-    }
-  ) {
-    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
-
-    const cursorEvent: CursorMoveEvent = {
-      roomId: socket.roomId,
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      position: data.position,
-      timestamp: Date.now(),
-    };
-
-    // Enhanced cursor event with block information
-    const enhancedCursorEvent = {
-      ...cursorEvent,
-      notebookId: data.notebookId,
-      blockId: data.blockId,
-    };
-
-    // Broadcast cursor position to all other users in the room
-    socket.to(socket.roomId).emit("cursor-moved", enhancedCursorEvent);
-  }
-
-  private handleSelectionChange(
-    socket: AuthenticatedSocket,
-    data: {
-      startPos: { line: number; column: number };
-      endPos: { line: number; column: number };
-      notebookId?: string;
-      blockId?: string;
-    }
-  ) {
-    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
-
-    const selectionEvent = {
-      roomId: socket.roomId,
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      startPos: data.startPos,
-      endPos: data.endPos,
-      notebookId: data.notebookId,
-      blockId: data.blockId,
-      timestamp: Date.now(),
-    };
-
-    // Broadcast selection to all other users in the room
-    socket.to(socket.roomId).emit("selection-changed", selectionEvent);
-  }
-
-  private handleDisconnect(socket: AuthenticatedSocket) {
+  private async handleDisconnect(socket: AuthenticatedSocket) {
     console.log(
       `❌ User ${socket.userEmail} (${socket.userId}) disconnected from Collaboration Service`
     );
     this.handleLeaveRoom(socket);
+
+    // Clean up awareness states for disconnected user
+    for (const [notebookId, awareness] of this.awarenessMap.entries()) {
+      try {
+        const states = awareness.getStates();
+
+        // Find all clientIds for this user
+        const clientIdsToRemove: number[] = [];
+        states.forEach((state: any, clientId: number) => {
+          if (state?.userId === socket.userId) {
+            clientIdsToRemove.push(clientId);
+          }
+        });
+
+        // Remove them using the proper Awareness API
+        if (clientIdsToRemove.length > 0) {
+          // Encode the removal update
+          const update = encodeAwarenessUpdate(awareness, clientIdsToRemove);
+          const updateBase64 = Buffer.from(update).toString("base64");
+
+          // Broadcast the removal to the room
+          const notebook = await this.yjsManager.findNotebook(notebookId);
+          if (notebook?.roomId) {
+            this.io.to(notebook.roomId).emit("awareness-update", {
+              notebookId,
+              update: updateBase64,
+            });
+          }
+
+          console.log(
+            `🧹 Cleaned up awareness for ${socket.userEmail} in ${notebookId}`
+          );
+        }
+      } catch (err) {
+        console.error("⚠️ Awareness cleanup failed:", err);
+      }
+    }
   }
 
   private addToChatHistory(roomId: string, message: ChatMessage) {
@@ -932,93 +920,6 @@ class RealtimeCollaborationService {
       roomId: socket.roomId,
       participants,
     });
-  }
-
-  private handleTypingStart(
-    socket: AuthenticatedSocket,
-    data: {
-      position: { line: number; column: number };
-      notebookId?: string;
-      blockId?: string;
-    }
-  ) {
-    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
-
-    // Broadcast to other users in the room
-    socket.to(socket.roomId).emit("typing-start", {
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      position: data.position,
-      notebookId: data.notebookId,
-      blockId: data.blockId,
-      timestamp: Date.now(),
-    });
-  }
-
-  private handleTypingStop(socket: AuthenticatedSocket) {
-    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
-
-    // Broadcast to other users in the room
-    socket.to(socket.roomId).emit("typing-stop", {
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      timestamp: Date.now(),
-    });
-  }
-
-  private handleLanguageChange(
-    socket: AuthenticatedSocket,
-    data: { language: string }
-  ) {
-    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
-
-    // Broadcast to other users in the room
-    socket.to(socket.roomId).emit("language-change", {
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      language: data.language,
-      timestamp: Date.now(),
-    });
-  }
-
-  private handleUserFocusBlock(
-    socket: AuthenticatedSocket,
-    data: { notebookId: string; blockId: string }
-  ) {
-    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
-
-    // Broadcast to other users that this user is now active in this block
-    socket.to(socket.roomId).emit("user-focus-block", {
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      notebookId: data.notebookId,
-      blockId: data.blockId,
-      timestamp: Date.now(),
-    });
-
-    console.log(
-      `👁️ User ${socket.userEmail} focused on block ${data.blockId} in notebook ${data.notebookId}`
-    );
-  }
-
-  private handleUserBlurBlock(
-    socket: AuthenticatedSocket,
-    data: { notebookId: string; blockId: string }
-  ) {
-    if (!socket.roomId || !socket.userId || !socket.userEmail) return;
-
-    // Broadcast to other users that this user is no longer active in this block
-    socket.to(socket.roomId).emit("user-blur-block", {
-      userId: socket.userId,
-      userEmail: socket.userEmail,
-      notebookId: data.notebookId,
-      blockId: data.blockId,
-      timestamp: Date.now(),
-    });
-
-    console.log(
-      `👁️ User ${socket.userEmail} blurred from block ${data.blockId} in notebook ${data.notebookId}`
-    );
   }
 
   public broadcastToRoom(roomId: string, event: string, data: any) {
@@ -1253,6 +1154,44 @@ class RealtimeCollaborationService {
         message: "Failed to move block",
       });
     }
+  }
+
+  private getAwareness(notebookId: string): Awareness {
+    if (!this.awarenessMap.has(notebookId)) {
+      const ydoc = this.yjsManager.getDocument(notebookId);
+      const awareness = new Awareness(ydoc);
+
+      // Auto-broadcast awareness updates
+      awareness.on("update", ({ added, updated, removed }: any) => {
+        const changedClients = [...added, ...updated, ...removed];
+        if (changedClients.length === 0) return;
+
+        const update = encodeAwarenessUpdate(awareness, changedClients);
+        const updateBase64 = Buffer.from(update).toString("base64");
+
+        // Find the room for this notebook and broadcast
+        this.yjsManager
+          .findNotebook(notebookId)
+          .then((notebook) => {
+            if (notebook?.roomId) {
+              this.io.to(notebook.roomId).emit("awareness-update", {
+                notebookId,
+                update: updateBase64,
+              });
+
+              console.log(
+                `📡 Broadcasted awareness for ${notebookId} to room ${notebook.roomId}`
+              );
+            }
+          })
+          .catch((err) => {
+            console.error("⚠️ Failed to broadcast awareness:", err);
+          });
+      });
+
+      this.awarenessMap.set(notebookId, awareness);
+    }
+    return this.awarenessMap.get(notebookId)!;
   }
 
   public getYjsManager(): YjsDocumentManager {

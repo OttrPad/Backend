@@ -1,7 +1,7 @@
 import request from 'supertest';
 import express from 'express';
-import healthRouter from '../routes/health.routes';
-import { serviceProxy } from '../services/proxy.service';
+import healthRouter from '../../routes/health.routes';
+import { serviceProxy } from '../../services/proxy.service';
 
 describe('health routes', () => {
   let app: express.Application;
