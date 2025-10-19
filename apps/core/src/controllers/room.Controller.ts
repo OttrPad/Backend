@@ -13,7 +13,7 @@ import {
   processUserJoinRoom,
 } from "../services/roomUserService";
 import { supabase } from "@packages/supabase";
-import { getGitRepo, writeSnapshotToRepo } from "../../../vcs/src/lib/git"; 
+import { getGitRepo, writeSnapshotToRepo } from "../../../vcs/src/lib/git";
 
 export const createRoomHandler = async (req: Request, res: Response) => {
   try {
@@ -89,7 +89,7 @@ export const createRoomHandler = async (req: Request, res: Response) => {
     // Initialize Git repository and create a snapshot with default notebook
     const { git, repoDir } = await getGitRepo();
     console.log("Git repository initialized at:", repoDir);
-    
+
     // Create default notebook with a welcome Python block
     const defaultNotebookId = `notebook-${room.room_id}-default`;
     const defaultBlocks = [
@@ -102,7 +102,7 @@ export const createRoomHandler = async (req: Request, res: Response) => {
         updatedAt: Date.now(),
       },
     ];
-    
+
     const snapshot = {
       room_id: room.room_id,
       notebook_id: defaultNotebookId,
@@ -113,7 +113,7 @@ export const createRoomHandler = async (req: Request, res: Response) => {
       created_by: room.created_by,
       blocks: defaultBlocks,
     };
-    
+
     const filePath = await writeSnapshotToRepo(
       repoDir,
       room.room_id.toString(),
@@ -127,28 +127,47 @@ export const createRoomHandler = async (req: Request, res: Response) => {
 
     // Initialize main branch for version control using internal call
     try {
-      const vcsUrl = process.env.VERSION_CONTROL_SERVICE_URL || 'http://localhost:5000';
-      const response = await fetch(`${vcsUrl}/api/version-control/branches/initialize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-gateway-user-id': userId,
-          'x-internal-secret': process.env.INTERNAL_SECRET || 'dev-secret-key',
-        },
-        body: JSON.stringify({
-          roomId: room.room_id,
-          userId: userId,
-        }),
-      });
+      // Prefer explicit service URL; in Docker this should be http://vcs:5000
+      const vcsUrl =
+        process.env.VERSION_CONTROL_SERVICE_URL ||
+        process.env.VCS_URL ||
+        "http://localhost:5000";
+
+      // Use the same env var name that VCS expects
+      const internalSecret =
+        process.env.VERSION_CONTROL_INTERNAL_SECRET ||
+        process.env.INTERNAL_SECRET ||
+        "";
+
+      const response = await fetch(
+        `${vcsUrl}/api/version-control/branches/initialize`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-gateway-user-id": userId,
+            "x-internal-secret": internalSecret,
+          },
+          body: JSON.stringify({
+            roomId: room.room_id,
+            userId: userId,
+          }),
+        }
+      );
 
       if (response.ok) {
         console.log(`✅ Main branch initialized for room ${room.room_id}`);
       } else {
         const errorText = await response.text();
-        console.warn(`⚠️ Failed to initialize main branch: ${response.status} ${errorText}`);
+        console.warn(
+          `⚠️ Failed to initialize main branch: ${response.status} ${errorText}`
+        );
       }
     } catch (branchError) {
-      console.warn(`⚠️ Could not initialize branch system for room ${room.room_id}:`, branchError);
+      console.warn(
+        `⚠️ Could not initialize branch system for room ${room.room_id}:`,
+        branchError
+      );
     }
 
     console.log(

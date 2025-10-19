@@ -6,7 +6,7 @@ export const getCommitTimelineService = async (roomId: string) => {
   const { data: commits, error: commitsError } = await supabase
     .from("commits")
     .select(
-      "commit_id, block_id, file_id, commit_message, created_at, author_id, milestone, hidden, commit_type, snapshot_json"
+      "commit_id, block_id, file_id, commit_message, created_at, author_id, milestone, hidden, commit_type, snapshot_json, branch_id"
     )
     .eq("room_id", roomId)
     .neq("hidden", true)
@@ -51,6 +51,9 @@ export const getCommitTimelineService = async (roomId: string) => {
       created_at: commit.created_at,
       author_id: commit.author_id,
       snapshot_json: commit.snapshot_json,
+      // include branch for client-side filtering
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      branch_id: (commit as any).branch_id,
     }));
 
     groupedTimeline.push({
@@ -87,6 +90,9 @@ export const getCommitTimelineService = async (roomId: string) => {
             created_at: commit.created_at,
             author_id: commit.author_id,
             snapshot_json: commit.snapshot_json,
+            // include branch for client-side filtering
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+            branch_id: (commit as any).branch_id,
           };
         });
 
@@ -106,6 +112,9 @@ export const getCommitTimelineService = async (roomId: string) => {
         created_at: commit.created_at,
         author_id: commit.author_id,
         snapshot_json: commit.snapshot_json,
+        // include branch for client-side filtering
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        branch_id: (commit as any).branch_id,
       }));
 
     // Only add the ungrouped section if there are actually ungrouped commits

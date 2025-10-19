@@ -3,7 +3,7 @@
  * Handles HTTP requests for branch operations
  */
 
-import { Request, Response } from 'express';
+import { Request, Response } from "express";
 import {
   createBranch,
   getBranches,
@@ -14,7 +14,7 @@ import {
   initializeMainBranch,
   pullFromMain,
   pushToMain,
-} from '../services/branchService';
+} from "../services/branchService";
 
 /**
  * POST /branches
@@ -22,20 +22,23 @@ import {
  */
 export async function createBranchHandler(req: Request, res: Response) {
   try {
-    const { roomId, branchName, description, parentBranchId, initialSnapshot } = req.body;
-    const userId = req.headers['x-gateway-user-id'] as string;
+    const { roomId, branchName, description, parentBranchId, initialSnapshot } =
+      req.body;
+    const userId = req.headers["x-gateway-user-id"] as string;
 
     if (!roomId || !branchName) {
       return res.status(400).json({
-        error: 'roomId and branchName are required',
+        error: "roomId and branchName are required",
       });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
-    console.log(`[BranchController] Creating branch "${branchName}" in room ${roomId}`);
+    console.log(
+      `[BranchController] Creating branch "${branchName}" in room ${roomId}`
+    );
 
     const { branch, initialCommitId, error } = await createBranch(
       Number(roomId),
@@ -48,19 +51,19 @@ export async function createBranchHandler(req: Request, res: Response) {
 
     if (error) {
       return res.status(500).json({
-        error: error.message || 'Failed to create branch',
+        error: error.message || "Failed to create branch",
       });
     }
 
     res.status(201).json({
-      message: 'Branch created successfully',
+      message: "Branch created successfully",
       branch,
       initialCommitId,
     });
   } catch (error: any) {
-    console.error('[BranchController] Error creating branch:', error);
+    console.error("[BranchController] Error creating branch:", error);
     res.status(500).json({
-      error: error.message || 'Failed to create branch',
+      error: error.message || "Failed to create branch",
     });
   }
 }
@@ -74,22 +77,31 @@ export async function getBranchesHandler(req: Request, res: Response) {
     const { roomId } = req.params;
 
     if (!roomId) {
-      return res.status(400).json({ error: 'roomId is required' });
+      return res.status(400).json({ error: "roomId is required" });
+    }
+
+    // Ensure main branch exists; create it on-demand if missing
+    const { branch: existingMain } = await getMainBranch(Number(roomId));
+    if (!existingMain) {
+      const userId = req.headers["x-gateway-user-id"] as string;
+      if (userId) {
+        await initializeMainBranch(Number(roomId), userId);
+      }
     }
 
     const { branches, error } = await getBranches(Number(roomId));
 
     if (error) {
       return res.status(500).json({
-        error: error.message || 'Failed to get branches',
+        error: error.message || "Failed to get branches",
       });
     }
 
     res.json({ branches });
   } catch (error: any) {
-    console.error('[BranchController] Error getting branches:', error);
+    console.error("[BranchController] Error getting branches:", error);
     res.status(500).json({
-      error: error.message || 'Failed to get branches',
+      error: error.message || "Failed to get branches",
     });
   }
 }
@@ -101,29 +113,35 @@ export async function getBranchesHandler(req: Request, res: Response) {
 export async function getCurrentBranchHandler(req: Request, res: Response) {
   try {
     const { roomId } = req.params;
-    const userId = req.headers['x-gateway-user-id'] as string;
+    const userId = req.headers["x-gateway-user-id"] as string;
 
     if (!roomId) {
-      return res.status(400).json({ error: 'roomId is required' });
+      return res.status(400).json({ error: "roomId is required" });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Ensure main branch exists; create it on-demand if missing
+    const { branch: existingMain } = await getMainBranch(Number(roomId));
+    if (!existingMain) {
+      await initializeMainBranch(Number(roomId), userId);
     }
 
     const { branch, error } = await getCurrentBranch(Number(roomId), userId);
 
     if (error) {
       return res.status(500).json({
-        error: error.message || 'Failed to get current branch',
+        error: error.message || "Failed to get current branch",
       });
     }
 
     res.json({ branch });
   } catch (error: any) {
-    console.error('[BranchController] Error getting current branch:', error);
+    console.error("[BranchController] Error getting current branch:", error);
     res.status(500).json({
-      error: error.message || 'Failed to get current branch',
+      error: error.message || "Failed to get current branch",
     });
   }
 }
@@ -137,22 +155,22 @@ export async function getMainBranchHandler(req: Request, res: Response) {
     const { roomId } = req.params;
 
     if (!roomId) {
-      return res.status(400).json({ error: 'roomId is required' });
+      return res.status(400).json({ error: "roomId is required" });
     }
 
     const { branch, error } = await getMainBranch(Number(roomId));
 
     if (error) {
       return res.status(500).json({
-        error: error.message || 'Failed to get main branch',
+        error: error.message || "Failed to get main branch",
       });
     }
 
     res.json({ branch });
   } catch (error: any) {
-    console.error('[BranchController] Error getting main branch:', error);
+    console.error("[BranchController] Error getting main branch:", error);
     res.status(500).json({
-      error: error.message || 'Failed to get main branch',
+      error: error.message || "Failed to get main branch",
     });
   }
 }
@@ -166,46 +184,45 @@ export async function checkoutBranchHandler(req: Request, res: Response) {
   try {
     const { branchId } = req.params;
     const { roomId, currentSnapshot } = req.body;
-    const userId = req.headers['x-gateway-user-id'] as string;
+    const userId = req.headers["x-gateway-user-id"] as string;
 
     if (!branchId || !roomId) {
       return res.status(400).json({
-        error: 'branchId and roomId are required',
+        error: "branchId and roomId are required",
       });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
-    console.log(`[BranchController] User ${userId} checking out branch ${branchId}`, {
-      hasSnapshot: !!currentSnapshot,
-      blocks: currentSnapshot?.blocks?.length || 0,
-    });
-
-    const { success, branch, snapshot, autoCommitId, error } = await checkoutBranch(
-      Number(roomId),
-      branchId,
-      userId,
-      currentSnapshot
+    console.log(
+      `[BranchController] User ${userId} checking out branch ${branchId}`,
+      {
+        hasSnapshot: !!currentSnapshot,
+        blocks: currentSnapshot?.blocks?.length || 0,
+      }
     );
+
+    const { success, branch, snapshot, autoCommitId, error } =
+      await checkoutBranch(Number(roomId), branchId, userId, currentSnapshot);
 
     if (error || !success) {
       return res.status(500).json({
-        error: error?.message || 'Failed to checkout branch',
+        error: error?.message || "Failed to checkout branch",
       });
     }
 
     res.json({
-      message: 'Branch checked out successfully',
+      message: "Branch checked out successfully",
       branch,
       snapshot,
       autoCommitId, // Return the auto-commit ID so frontend knows work was saved
     });
   } catch (error: any) {
-    console.error('[BranchController] Error checking out branch:', error);
+    console.error("[BranchController] Error checking out branch:", error);
     res.status(500).json({
-      error: error.message || 'Failed to checkout branch',
+      error: error.message || "Failed to checkout branch",
     });
   }
 }
@@ -217,14 +234,14 @@ export async function checkoutBranchHandler(req: Request, res: Response) {
 export async function deleteBranchHandler(req: Request, res: Response) {
   try {
     const { branchId } = req.params;
-    const userId = req.headers['x-gateway-user-id'] as string;
+    const userId = req.headers["x-gateway-user-id"] as string;
 
     if (!branchId) {
-      return res.status(400).json({ error: 'branchId is required' });
+      return res.status(400).json({ error: "branchId is required" });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     console.log(`[BranchController] Deleting branch ${branchId}`);
@@ -233,17 +250,17 @@ export async function deleteBranchHandler(req: Request, res: Response) {
 
     if (error || !success) {
       return res.status(500).json({
-        error: error?.message || 'Failed to delete branch',
+        error: error?.message || "Failed to delete branch",
       });
     }
 
     res.json({
-      message: 'Branch deleted successfully',
+      message: "Branch deleted successfully",
     });
   } catch (error: any) {
-    console.error('[BranchController] Error deleting branch:', error);
+    console.error("[BranchController] Error deleting branch:", error);
     res.status(500).json({
-      error: error.message || 'Failed to delete branch',
+      error: error.message || "Failed to delete branch",
     });
   }
 }
@@ -258,28 +275,33 @@ export async function initializeMainBranchHandler(req: Request, res: Response) {
 
     if (!roomId || !userId) {
       return res.status(400).json({
-        error: 'roomId and userId are required',
+        error: "roomId and userId are required",
       });
     }
 
-    console.log(`[BranchController] Initializing main branch for room ${roomId}`);
+    console.log(
+      `[BranchController] Initializing main branch for room ${roomId}`
+    );
 
-    const { branch, error } = await initializeMainBranch(Number(roomId), userId);
+    const { branch, error } = await initializeMainBranch(
+      Number(roomId),
+      userId
+    );
 
     if (error) {
       return res.status(500).json({
-        error: error.message || 'Failed to initialize main branch',
+        error: error.message || "Failed to initialize main branch",
       });
     }
 
     res.status(201).json({
-      message: 'Main branch initialized successfully',
+      message: "Main branch initialized successfully",
       branch,
     });
   } catch (error: any) {
-    console.error('[BranchController] Error initializing main branch:', error);
+    console.error("[BranchController] Error initializing main branch:", error);
     res.status(500).json({
-      error: error.message || 'Failed to initialize main branch',
+      error: error.message || "Failed to initialize main branch",
     });
   }
 }
@@ -292,16 +314,16 @@ export async function pullFromMainHandler(req: Request, res: Response) {
   try {
     const { branchId } = req.params;
     const { roomId, commitMessage } = req.body;
-    const userId = req.headers['x-gateway-user-id'] as string;
+    const userId = req.headers["x-gateway-user-id"] as string;
 
     if (!roomId || !branchId) {
       return res.status(400).json({
-        error: 'roomId and branchId are required',
+        error: "roomId and branchId are required",
       });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     console.log(`[BranchController] Pulling from main into branch ${branchId}`);
@@ -315,25 +337,25 @@ export async function pullFromMainHandler(req: Request, res: Response) {
 
     if (error) {
       return res.status(500).json({
-        error: error.message || 'Failed to pull from main',
+        error: error.message || "Failed to pull from main",
       });
     }
 
     if (!success && conflicts) {
       return res.status(409).json({
-        message: 'Pull has conflicts that must be resolved',
+        message: "Pull has conflicts that must be resolved",
         conflicts,
       });
     }
 
     res.json({
-      message: 'Successfully pulled from main',
+      message: "Successfully pulled from main",
       mergeCommitId,
     });
   } catch (error: any) {
-    console.error('[BranchController] Error pulling from main:', error);
+    console.error("[BranchController] Error pulling from main:", error);
     res.status(500).json({
-      error: error.message || 'Failed to pull from main',
+      error: error.message || "Failed to pull from main",
     });
   }
 }
@@ -346,17 +368,17 @@ export async function pushToMainHandler(req: Request, res: Response) {
   try {
     const { branchId } = req.params;
     const { roomId, commitMessage } = req.body;
-    const userId = req.headers['x-gateway-user-id'] as string;
-    const userEmail = req.headers['x-gateway-user-email'] as string;
+    const userId = req.headers["x-gateway-user-id"] as string;
+    const userEmail = req.headers["x-gateway-user-email"] as string;
 
     if (!roomId || !branchId) {
       return res.status(400).json({
-        error: 'roomId and branchId are required',
+        error: "roomId and branchId are required",
       });
     }
 
     if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     console.log(`[BranchController] Pushing branch ${branchId} to main`);
@@ -371,31 +393,31 @@ export async function pushToMainHandler(req: Request, res: Response) {
 
     if (error) {
       // Check if it's a permission error
-      if (error.message.includes('Only owners and admins')) {
+      if (error.message.includes("Only owners and admins")) {
         return res.status(403).json({
           error: error.message,
         });
       }
       return res.status(500).json({
-        error: error.message || 'Failed to push to main',
+        error: error.message || "Failed to push to main",
       });
     }
 
     if (!success && conflicts) {
       return res.status(409).json({
-        message: 'Push has conflicts that must be resolved',
+        message: "Push has conflicts that must be resolved",
         conflicts,
       });
     }
 
     res.json({
-      message: 'Successfully pushed to main',
+      message: "Successfully pushed to main",
       mergeCommitId,
     });
   } catch (error: any) {
-    console.error('[BranchController] Error pushing to main:', error);
+    console.error("[BranchController] Error pushing to main:", error);
     res.status(500).json({
-      error: error.message || 'Failed to push to main',
+      error: error.message || "Failed to push to main",
     });
   }
 }

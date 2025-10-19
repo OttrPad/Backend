@@ -82,6 +82,24 @@ export const createMilestone = async (
       throw new Error("Only owners and admins can create milestones.");
     }
 
+    // Normalize roomId: allow numeric ID or human room_code like abc-def-ghi
+    let resolvedRoomId: string | number = roomId;
+    if (
+      isNaN(Number(roomId)) &&
+      typeof roomId === "string" &&
+      roomId.includes("-")
+    ) {
+      const { data: roomRec, error: roomErr } = await supabase
+        .from("Rooms")
+        .select("room_id")
+        .eq("room_code", roomId)
+        .single();
+      if (roomErr || !roomRec) {
+        throw new Error(`Room not found for code: ${roomId}`);
+      }
+      resolvedRoomId = roomRec.room_id;
+    }
+
     // Step 2: Get the latest commit to link the milestone to
     // If commitId is provided, use it; otherwise use the latest commit in the room
     let targetCommitId = commitId;
@@ -93,7 +111,7 @@ export const createMilestone = async (
       const { data: latest, error: latestErr } = await supabase
         .from("commits")
         .select("commit_id")
-        .eq("room_id", roomId)
+        .eq("room_id", resolvedRoomId)
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
@@ -116,14 +134,43 @@ export const createMilestone = async (
 
     // Step 3: Verify we're on the main branch (milestones only allowed on main)
     console.log(`📋 [createMilestone] Verifying main branch...`);
-    const { data: mainBranch, error: branchError } = await supabase
+    let { data: mainBranch, error: branchError } = await supabase
       .from("branches")
       .select("branch_id")
-      .eq("room_id", roomId)
+      .eq("room_id", resolvedRoomId)
       .eq("is_main", true)
       .single();
 
     if (branchError || !mainBranch) {
+      // Try to initialize main branch on the fly (internal call)
+      try {
+        const vcsUrl =
+          process.env.VERSION_CONTROL_PUBLIC_URL ||
+          process.env.VERSION_CONTROL_SERVICE_URL ||
+          "http://localhost:5000";
+        const internalSecret =
+          process.env.VERSION_CONTROL_INTERNAL_SECRET || "";
+        const resp = await fetch(
+          `${vcsUrl}/api/version-control/branches/initialize`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-internal-secret": internalSecret,
+              "x-gateway-user-id": userId,
+            },
+            body: JSON.stringify({ roomId: resolvedRoomId, userId }),
+          }
+        );
+        if (resp.ok) {
+          const { branch } = await resp.json();
+          mainBranch = { branch_id: branch.branch_id } as any;
+        }
+      } catch (e) {
+        // ignore and fall through
+      }
+    }
+    if (!mainBranch) {
       throw new Error("Could not find main branch for this room");
     }
 
@@ -136,7 +183,7 @@ export const createMilestone = async (
       .from("milestones")
       .insert([
         {
-          room_id: roomId,
+          room_id: resolvedRoomId,
           name: milestoneName,
           notes: milestoneNotes,
           created_by: userId,

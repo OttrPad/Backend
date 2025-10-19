@@ -21,6 +21,17 @@ import {
 
 const router: Router = Router();
 
+// Basic health/status for debugging
+router.get("/status", async (req, res) => {
+  try {
+    const { supabase } = await import("@packages/supabase");
+    const { error } = await supabase.from("Rooms").select("room_id").limit(1);
+    return res.json({ status: "ok", db: error ? "error" : "ok" });
+  } catch (e: any) {
+    return res.status(200).json({ status: "ok", db: "unknown" });
+  }
+});
+
 // Apply requireGatewayAuth middleware to ensure requests are coming through the API Gateway
 router.use(requireGatewayAuth);
 
